@@ -1,0 +1,41 @@
+# Entorno virtual — MUY IMPORTANTE
+venv_sara/
+venv/
+env/
+
+echo ".ollama/" >> .gitignore
+echo "*.zip" >> .gitignore
+echo ".ollama.zip" >> .gitignore
+
+# Modelos de IA — archivos enormes
+*.dll
+*.pth
+*.bin
+
+# Base de datos
+sara.db
+*.db
+
+# Audio temporal
+sara_temp_audio.mp3
+*.mp3
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variables de entorno
+.env
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+python/
+
+.libs_instaladas
+scripts/
