@@ -25,6 +25,14 @@ except ImportError:
     _intent_router = None
     INTENT_ROUTER_DISPONIBLE = False
 
+# ── PRAXIS: intent_router ─────────────────────────────────────
+try:
+    import intent_router as _intent_router
+    INTENT_ROUTER_DISPONIBLE = True
+except ImportError:
+    _intent_router = None
+    INTENT_ROUTER_DISPONIBLE = False
+
 PALABRAS_PREGUNTA = (
     "que", "como", "cuando", "donde", "por que", "para que",
     "quien", "cuanto", "cuantos", "cuales", "cual", "dime",
