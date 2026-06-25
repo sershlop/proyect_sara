@@ -21,7 +21,8 @@ from config import (
 # ── QWEN LOCAL (Ollama) ───────────────────────
 from config import (
     USAR_QWEN, QWEN_MODEL, QWEN_TEMPERATURA,
-    QWEN_MAX_TOKENS, USAR_QWEN_RESPUESTAS, USAR_QWEN_CODIGO
+    QWEN_MAX_TOKENS, USAR_QWEN_RESPUESTAS, USAR_QWEN_CODIGO,
+    QWEN_MAX_CONTEXT, QWEN_FORMAT
 )
 
 _qwen_disponible = False
@@ -488,14 +489,12 @@ def inicializar_qwen():
     try:
         import ollama
         import requests as _req
-        # Verificar primero que el servidor responde
         try:
             _req.get("http://127.0.0.1:11434", timeout=3)
         except Exception:
             logger.warning("external", "Servidor Ollama no responde en puerto 11434.")
             _qwen_disponible = False
             return False
-        # Verificar que el modelo existe
         modelos = ollama.list()
         nombres = [m.model for m in modelos.models]
         if not any(QWEN_MODEL in n for n in nombres):
@@ -513,7 +512,12 @@ def inicializar_qwen():
 def qwen_disponible():
     return _qwen_disponible
 
-def consultar_qwen(prompt, system_prompt=""):
+def consultar_qwen(prompt, system_prompt="", forzar_json=True):
+    """
+    Consulta a Qwen local vía Ollama con opciones optimizadas para CPU.
+    - forzar_json=True  → usa QWEN_FORMAT para grammar sampling (más rápido y limpio)
+    - forzar_json=False → respuesta libre (para obtener_respuesta_qwen)
+    """
     global _qwen_disponible
     if not _qwen_disponible:
         if not inicializar_qwen():
@@ -524,77 +528,92 @@ def consultar_qwen(prompt, system_prompt=""):
         if system_prompt:
             mensajes.append({"role": "system", "content": system_prompt})
         mensajes.append({"role": "user", "content": prompt})
-        response = ollama.chat(model=QWEN_MODEL, messages=mensajes)
+
+        opciones = {
+            "temperature": QWEN_TEMPERATURA,
+            "num_predict": QWEN_MAX_TOKENS,
+            "num_ctx":     QWEN_MAX_CONTEXT,
+        }
+
+        kwargs = {
+            "model":    QWEN_MODEL,
+            "messages": mensajes,
+            "options":  opciones,
+        }
+        # Grammar sampling: fuerza salida JSON a nivel de Ollama runtime
+        if forzar_json and QWEN_FORMAT == "json":
+            kwargs["format"] = "json"
+
+        response = ollama.chat(**kwargs)
         return response["message"]["content"].strip()
     except Exception as e:
         logger.log_excepcion("external", "consultar_qwen", e)
         _qwen_disponible = False
         return None
 
+
 # REEMPLAZAR razonar_con_qwen() completo:
 
 def razonar_con_qwen(entrada_usuario):
+    """
+    Clasifica la intención del usuario.
+    Con format='json' Ollama garantiza salida JSON válida sin texto basura.
+    System prompt más corto = menos tokens = más rápido.
+    """
     system_prompt = (
-        "Clasifica la intención del usuario. Responde SOLO con JSON en UNA SOLA LÍNEA sin saltos:\n"
-        '{"tipo":"codigo|pregunta|comando|busqueda","peticion":"copia la frase COMPLETA del usuario sin resumir"}\n'
-        "- codigo: crear scripts, programas, archivos de código, calculadoras, juegos, utilidades\n"
+        "/nothink\n"
+        "Clasifica la entrada. Responde solo con JSON:\n"
+        '{"tipo":"codigo|pregunta|comando|busqueda","peticion":"entrada completa sin resumir"}\n'
+        "- codigo: scripts, programas, calculadoras, juegos\n"
         "- pregunta: información o explicación\n"
         "- comando: abrir apps, webs, configuraciones\n"
-        "- busqueda: buscar algo en internet\n"
-        "CRÍTICO: JSON en UNA SOLA LÍNEA. Sin saltos de línea. Sin texto extra. Solo JSON.\n"
-        "CRÍTICO: en 'peticion' copia la entrada COMPLETA, nunca la truncues ni resumas."
+        "- busqueda: buscar en internet"
     )
-    respuesta = consultar_qwen(entrada_usuario, system_prompt)
+    respuesta = consultar_qwen(entrada_usuario, system_prompt, forzar_json=True)
     if not respuesta:
         return None
     try:
         respuesta_limpia = re.sub(r'```json|```', '', respuesta).strip()
-        # Limpiar saltos de línea que rompen el JSON
         respuesta_limpia = re.sub(r'\n+', ' ', respuesta_limpia)
         respuesta_limpia = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', respuesta_limpia)
         json_match = re.search(r'\{.*?\}', respuesta_limpia, re.DOTALL)
         json_str   = json_match.group(0) if json_match else respuesta_limpia
         resultado  = json.loads(json_str)
+        # Si Qwen truncó la petición, usar la entrada original
         if len(resultado.get("peticion", "")) < len(entrada_usuario) * 0.7:
             resultado["peticion"] = entrada_usuario
         return resultado
     except Exception as e:
         logger.error("external", "Error parseando JSON de Qwen", str(e))
-        # Fallback — intentar extraer tipo manualmente
         return _fallback_clasificacion(entrada_usuario, respuesta)
+
+
 # AGREGAR después de razonar_con_qwen():
 
 def arbitrar_candidatos_qwen(entrada_original, candidatos):
     """
-    Qwen arbitra entre candidatos en empate de scoring.
-    Recibe entrada original + lista de candidatos con tipo y score.
-    Retorna el índice del candidato ganador.
+    Árbitro de empates. System prompt mínimo — con format='json' no necesita
+    instrucciones de formato extensas, solo el esquema de respuesta.
     """
     if not candidatos:
         return 0
 
-    lista_str = ""
-    for i, c in enumerate(candidatos):
-        lista_str += (
-            f"{i}. tipo='{c['tipo']}' nombre='{c['nombre']}' "
-            f"score={c['score']:.2f}\n"
-        )
+    lista_str = "\n".join(
+        f"{i}. tipo='{c['tipo']}' nombre='{c['nombre']}' score={c['score']:.2f}"
+        for i, c in enumerate(candidatos)
+    )
 
     system_prompt = (
-        "Eres el árbitro de intención de SARA. El sistema de scoring encontró candidatos\n"
-        "con scores similares y necesita tu decisión.\n"
-        "Analiza la entrada del usuario y los candidatos, decide cuál es más fiel\n"
-        "a la intención real del usuario.\n"
-        "Responde SOLO con JSON:\n"
-        '{"ganador": <índice_número>, "razon": "breve justificación"}\n'
-        "Solo JSON. Sin explicaciones adicionales."
+        "/nothink\n"
+        "Elige el candidato más fiel a la intención del usuario.\n"
+        'Responde solo con JSON: {"ganador":<índice>,"razon":"breve"}'
     )
     prompt = (
-        f"Entrada del usuario: '{entrada_original}'\n\n"
+        f"Entrada: '{entrada_original}'\n"
         f"Candidatos:\n{lista_str}\n"
         "¿Cuál es el ganador?"
     )
-    respuesta = consultar_qwen(prompt, system_prompt)
+    respuesta = consultar_qwen(prompt, system_prompt, forzar_json=True)
     if not respuesta:
         return 0
     try:
@@ -609,25 +628,160 @@ def arbitrar_candidatos_qwen(entrada_original, candidatos):
     except Exception as e:
         logger.error("external", "Error parseando árbitro Qwen", str(e))
         return 0
-    
+# MAPA de nombres de función a acción ejecutable
+# Este mapa es el puente entre lo que Qwen clasifica y lo que shell.py ejecuta
+MAPA_FUNCIONES_SHELL = {
+    "info_ram":                "shell.info_ram",
+    "info_cpu":                "shell.info_cpu",
+    "info_disco":              "shell.info_disco",
+    "info_ip":                 "shell.info_ip",
+    "info_procesos":           "shell.info_procesos",
+    "info_bateria":            "shell.info_bateria",
+    "info_gpu":                "shell.info_gpu",
+    "info_pantalla":           "shell.info_pantalla",
+    "info_temperatura":        "shell.info_temperatura",
+    "info_usb":                "shell.info_usb",
+    "info_servicios":          "shell.info_servicios",
+    "info_variables_entorno":  "shell.info_variables_entorno",
+    "info_red_extendida":      "shell.info_red_extendida",
+    "info_dns":                "shell.info_dns",
+    "info_conexiones_activas": "shell.info_conexiones_activas",
+    "info_tabla_rutas":        "shell.info_tabla_rutas",
+    "info_arp":                "shell.info_arp",
+    "info_estadisticas_red":   "shell.info_estadisticas_red",
+    "version_herramienta":     "shell.version_herramienta",
+    "diagnostico_sistema":     "shell.diagnostico_sistema",
+    "ping_host":               "shell.ping_host",
+}
+
+
+def clasificar_intencion_shell_qwen(texto_usuario: str) -> dict | None:
+    """
+    Usa Qwen local para clasificar la intención del usuario en una función
+    específica de shell.py cuando los métodos deterministas no la resuelven.
+
+    Retorna dict con:
+        {
+            "funcion": "info_ram",           # nombre de función shell.py
+            "argumento": "python",           # argumento opcional (ej. para version_herramienta)
+            "confianza": 0.90,               # confianza de Qwen
+            "texto_limpio": "cuanta ram me queda"
+        }
+    O None si Qwen no puede clasificar con suficiente confianza.
+
+    Diseño deliberado:
+    - Solo se llama cuando intent_router + MAPA + keywords fallan
+    - Resultado se guarda automáticamente en BD para aprendizaje
+    - La próxima vez, la búsqueda vectorial lo resuelve sin Qwen
+    """
+    global _qwen_disponible
+    if not _qwen_disponible:
+        if not inicializar_qwen():
+            return None
+
+    # Funciones disponibles para que Qwen elija
+    funciones_disponibles = "\n".join(
+        f"- {nombre}: {_descripcion_funcion(nombre)}"
+        for nombre in MAPA_FUNCIONES_SHELL
+    )
+
+    system_prompt = (
+        "/nothink\n"
+        "Clasifica la petición del usuario en UNA función de sistema.\n"
+        "Responde SOLO con JSON válido:\n"
+        '{"funcion":"nombre_funcion","argumento":"","confianza":0.0-1.0}\n\n'
+        "Funciones disponibles:\n"
+        f"{funciones_disponibles}\n\n"
+        "REGLAS:\n"
+        "- confianza: 0.9 si estás seguro, 0.7 si probable, 0.5 si dudas\n"
+        "- argumento: solo para version_herramienta (ej: 'python', 'git', 'docker')\n"
+        "- Si no corresponde a ninguna función: {\"funcion\":\"ninguna\",\"argumento\":\"\",\"confianza\":0.0}\n"
+        "- NUNCA inventes funciones que no estén en la lista"
+    )
+
+    respuesta = consultar_qwen(texto_usuario, system_prompt, forzar_json=True)
+    if not respuesta:
+        return None
+
+    try:
+        respuesta_limpia = re.sub(r'```json|```', '', respuesta).strip()
+        json_match = re.search(r'\{.*?\}', respuesta_limpia, re.DOTALL)
+        if not json_match:
+            return None
+
+        resultado = json.loads(json_match.group(0))
+        funcion    = resultado.get("funcion", "ninguna")
+        argumento  = resultado.get("argumento", "")
+        confianza  = float(resultado.get("confianza", 0.0))
+
+        if funcion == "ninguna" or confianza < 0.6:
+            logger.debug("external",
+                         f"Qwen no clasificó shell: '{texto_usuario[:40]}' "
+                         f"→ {funcion} ({confianza:.2f})")
+            return None
+
+        if funcion not in MAPA_FUNCIONES_SHELL:
+            logger.warning("external",
+                           f"Qwen devolvió función desconocida: '{funcion}'")
+            return None
+
+        logger.info("external",
+                    f"Qwen clasificó shell: '{texto_usuario[:40]}' "
+                    f"→ {funcion}({argumento}) conf={confianza:.2f}")
+
+        return {
+            "funcion":    funcion,
+            "argumento":  argumento.strip(),
+            "confianza":  confianza,
+        }
+
+    except Exception as e:
+        logger.error("external", "Error parseando clasificación shell de Qwen", str(e))
+        return None
+
+
+def _descripcion_funcion(nombre: str) -> str:
+    """Descripción corta de cada función para el prompt de Qwen."""
+    DESCRIPCIONES = {
+        "info_ram":                "RAM total, usada y libre",
+        "info_cpu":                "nombre del CPU, núcleos y porcentaje de uso",
+        "info_disco":              "espacio libre y total en disco C:",
+        "info_ip":                 "dirección IP local y nombre del equipo",
+        "info_procesos":           "lista de procesos activos por CPU",
+        "info_bateria":            "nivel de batería y estado de carga",
+        "info_gpu":                "tarjeta gráfica, VRAM y driver",
+        "info_pantalla":           "resolución, monitores conectados y frecuencia",
+        "info_temperatura":        "temperatura del CPU y zonas térmicas",
+        "info_usb":                "dispositivos USB conectados",
+        "info_servicios":          "servicios de Windows activos",
+        "info_variables_entorno":  "variables de entorno como PATH, JAVA_HOME",
+        "info_red_extendida":      "adaptadores de red, velocidad y MAC address",
+        "info_dns":                "servidores DNS configurados",
+        "info_conexiones_activas": "conexiones TCP activas con proceso dueño",
+        "info_tabla_rutas":        "tabla de rutas de red y gateway",
+        "info_arp":                "dispositivos en red local con IP y MAC",
+        "info_estadisticas_red":   "bytes enviados y recibidos por adaptador",
+        "version_herramienta":     "versión de herramienta: python, git, node, docker, etc.",
+        "diagnostico_sistema":     "diagnóstico completo: RAM, disco, batería, GPU, red",
+        "ping_host":               "verificar conectividad a internet o a un host",
+    }
+    return DESCRIPCIONES.get(nombre, nombre)
 def verificar_peticion_qwen(peticion, entrada_original):
     """
     Verifica si la petición simplificada está completa.
-    Si está truncada usa la entrada original.
-    Retorna peticion verificada y lista para mandar a agente.
+    Respuesta libre (no JSON estructurado) — usa forzar_json=False.
     """
     if not _qwen_disponible:
         return entrada_original
 
     system_prompt = (
-        "Eres un verificador de texto. Analiza si la petición está completa.\n"
-        "Responde SOLO con JSON:\n"
-        '{"completa": true|false, "peticion_corregida": "texto completo y claro"}\n'
-        "Si está truncada o incompleta → corrígela usando el contexto.\n"
-        "Solo JSON."
+        "/nothink\n"
+        "Verifica si la petición está completa.\n"
+        'Responde solo con JSON: {"completa":true|false,"peticion_corregida":"texto"}\n'
+        "Si está truncada corrígela usando el contexto."
     )
-    prompt   = f"Original: {entrada_original}\nSimplificada: {peticion}"
-    respuesta = consultar_qwen(prompt, system_prompt)
+    prompt    = f"Original: {entrada_original}\nSimplificada: {peticion}"
+    respuesta = consultar_qwen(prompt, system_prompt, forzar_json=True)
     if not respuesta:
         return entrada_original
     try:
@@ -640,33 +794,23 @@ def verificar_peticion_qwen(peticion, entrada_original):
         return peticion
     except Exception:
         return entrada_original
-    
+
 def generar_comando_qwen(entrada):
     system_prompt = (
-        "Eres un motor de automatización Windows. "
-        "Responde ÚNICAMENTE con JSON válido sin texto adicional:\n"
+        "/nothink\n"
+        "Motor de automatización Windows. Responde solo con JSON:\n"
         '{"nombre":"...","palabras_clave":"...","accion":"...","tipo":"web|app|sistema|sistema_control","descripcion":"..."}\n'
-        "Reglas de accion:\n"
-        "- web: URL completa https://... o protocolo ms-settings:, steam://, spotify:\n"
+        "- web: URL completa https://...\n"
         "- app: ruta absoluta C:\\...\\app.exe\n"
         "- sistema: comando CMD sin start ni open\n"
         "- sistema_control: volumen_subir|volumen_bajar|volumen_silenciar|"
         "multimedia_pausar|multimedia_siguiente|multimedia_anterior|"
         "brillo_subir|brillo_bajar|bateria|cpu|ram\n"
-        "URLs EXACTAS obligatorias — NO inventes ni confundas:\n"
-        "- Gemini → https://gemini.google.com\n"
-        "- ChatGPT → https://chat.openai.com\n"
-        "- Copilot → https://copilot.microsoft.com\n"
-        "- Claude → https://claude.ai\n"
-        "- Perplexity → https://www.perplexity.ai\n"
-        "- Grok → https://grok.x.ai\n"
-        "- YouTube → https://www.youtube.com\n"
-        "- Google → https://www.google.com\n"
-        "Si no conoces la URL exacta del servicio solicitado, usa búsqueda: "
-        "https://www.google.com/search?q=nombre+del+servicio\n"
-        "Si no entiendes: {\"error\":\"no_entendido\"}"
+        "URLs exactas: Gemini→https://gemini.google.com | ChatGPT→https://chat.openai.com | "
+        "Claude→https://claude.ai | YouTube→https://www.youtube.com | Google→https://www.google.com\n"
+        'Si no entiendes: {"error":"no_entendido"}'
     )
-    respuesta = consultar_qwen(entrada, system_prompt)
+    respuesta = consultar_qwen(entrada, system_prompt, forzar_json=True)
     if not respuesta:
         return None
     try:
@@ -676,7 +820,7 @@ def generar_comando_qwen(entrada):
         comando    = json.loads(json_str)
         if comando.get("error"):
             return None
-        return comando if all(k in comando for k in ["nombre","accion","tipo"]) else None
+        return comando if all(k in comando for k in ["nombre", "accion", "tipo"]) else None
     except Exception as e:
         logger.error("external", "Error parseando comando de Qwen", str(e))
         return None
@@ -685,20 +829,23 @@ def obtener_respuesta_qwen(pregunta):
     if not USAR_QWEN_RESPUESTAS:
         return None
     system_prompt = (
-        "Eres SARA, un asistente inteligente mexicano. "
-        "Responde en español de México. Sé breve y útil. Máximo 3 párrafos."
+        "Eres SARA, asistente mexicano. "
+        "Responde en español de México. Breve y útil. Máximo 3 párrafos."
     )
-    return consultar_qwen(pregunta, system_prompt)
+    # Respuesta libre — no forzar JSON
+    return consultar_qwen(pregunta, system_prompt, forzar_json=False)
+
 
 def generar_codigo_qwen(peticion):
     if not USAR_QWEN_CODIGO:
         return None
     system_prompt = (
-        "Eres un experto en Python. Genera SOLO un JSON válido en UNA SOLA LÍNEA:\n"
+        "/nothink\n"
+        "Experto en Python. Genera solo JSON válido:\n"
         '{"nombre_archivo":"nombre.py","codigo":"codigo python usando \\n para saltos"}\n'
         "Sin explicaciones."
     )
-    respuesta = consultar_qwen(peticion, system_prompt)
+    respuesta = consultar_qwen(peticion, system_prompt, forzar_json=True)
     if not respuesta:
         return None
     try:
@@ -709,11 +856,10 @@ def generar_codigo_qwen(peticion):
         resultado  = json.loads(json_str)
         if "codigo" in resultado:
             resultado["codigo"] = resultado["codigo"].replace("\\n", "\n")
-        return resultado if all(k in resultado for k in ["nombre_archivo","codigo"]) else None
+        return resultado if all(k in resultado for k in ["nombre_archivo", "codigo"]) else None
     except Exception as e:
         logger.log_excepcion("external", "generar_codigo_qwen", e)
         return None
-    
 
 
 #fin funciones qwen...

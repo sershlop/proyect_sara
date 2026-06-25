@@ -22,6 +22,7 @@ def cargar_modelo():
         _modelo     = SentenceTransformer(MODELO_EMBEDDINGS)
         _disponible = True
         logger.info("embeddings", f"Modelo '{MODELO_EMBEDDINGS}' cargado correctamente.")
+        precalentar_modelo()
         return True
     except ImportError:
         logger.warning("embeddings", "sentence-transformers no instalado.")
@@ -35,6 +36,18 @@ def cargar_modelo():
 
 def esta_disponible():
     return _disponible
+
+
+def precalentar_modelo():
+    if not _disponible or _modelo is None:
+        return False
+    try:
+        _modelo.encode("Inicializando modelo semántico.", convert_to_numpy=True)
+        logger.debug("embeddings", "Modelo semántico precalentado y listo para consultas.")
+        return True
+    except Exception as e:
+        logger.log_excepcion("embeddings", "precalentar_modelo", e)
+        return False
 
 
 def generar_vector(texto):
@@ -81,6 +94,14 @@ def similitud_semantica(texto_a, texto_b):
 
 
 def buscar_mas_similar(texto_consulta, lista_vectores):
+    """
+    Busca el item más similar semánticamente a texto_consulta dentro de
+    lista_vectores. Acepta tuplas de longitud variable (>=2): usa SIEMPRE
+    el primer elemento como identificador y el ÚLTIMO como vector, sin
+    asumir tuplas de exactamente 2 elementos. Esto la hace compatible
+    tanto con database.obtener_vectores_comandos() -> (dict, vector)
+    como con database.obtener_vectores_conocimientos() -> (pregunta, respuesta, vector).
+    """
     if not _disponible or not lista_vectores:
         return None, 0.0
     try:
@@ -89,7 +110,11 @@ def buscar_mas_similar(texto_consulta, lista_vectores):
             return None, 0.0
         mejor_id    = None
         mejor_score = 0.0
-        for item_id, vector in lista_vectores:
+        for item in lista_vectores:
+            if not item or len(item) < 2:
+                continue
+            item_id = item[0]
+            vector  = item[-1]
             if vector is None:
                 continue
             score = similitud_coseno(vector_consulta, vector)

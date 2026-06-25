@@ -1,20 +1,23 @@
-# 📁 io_manager.py
-_modo_voz    = False
+
+# 📁 io_manager.py — v2.0 con emisión WebSocket
+_modo_voz = False
 _voice_module = None
 
 
 def activar_modo_voz(voice_mod):
     global _modo_voz, _voice_module
-    _modo_voz     = True
+    _modo_voz = True
     _voice_module = voice_mod
     print("🎤 Modo voz activado. Di 'sara' para activarme.")
+    _emitir_estado_voz(True)
 
 
 def desactivar_modo_voz():
     global _modo_voz, _voice_module
-    _modo_voz     = False
+    _modo_voz = False
     _voice_module = None
     print("⌨️  Modo voz desactivado. Volviendo a modo texto.")
+    _emitir_estado_voz(False)
 
 
 def esta_en_modo_voz():
@@ -34,11 +37,13 @@ def obtener_input():
             if detectado:
                 if comando_inline:
                     print(f"🗣️  Tú dijiste: 'sara {comando_inline}'")
+                    _emitir_mensaje_usuario(f"sara {comando_inline}")
                     return comando_inline
 
                 texto = _voice_module.escuchar_comando()
                 if texto:
                     print(f"🗣️  Tú dijiste: '{texto}'")
+                    _emitir_mensaje_usuario(texto)
                     return texto
 
                 print("💤 SARA: En espera...")
@@ -46,6 +51,8 @@ def obtener_input():
 
     try:
         texto = input("Tú: ").strip()
+        if texto:
+            _emitir_mensaje_usuario(texto)
         return texto
     except KeyboardInterrupt:
         print("\nSARA: Hasta luego 👋")
@@ -59,17 +66,20 @@ def mostrar_respuesta(texto):
     if not texto or not texto.strip():
         return
     print(f"SARA: {texto}")
+    _emitir_respuesta(texto)
     if _modo_voz and _voice_module:
         _voice_module.hablar_async(texto)
 
 
 def mostrar_error(mensaje):
     print(f"SARA [ERROR]: {mensaje}")
+    _emitir_error(mensaje)
 
 
 def mostrar_confianza(confianza):
     porcentaje = round(confianza * 100, 1)
     print(f"SARA [confianza: {porcentaje}%]")
+    _emitir_confianza(confianza)
 
 
 def mostrar_bienvenida():
@@ -82,10 +92,12 @@ def mostrar_bienvenida():
 
 def mostrar_separador():
     print("-" * 40)
+    _emitir_separador()
 
 
 def mostrar_despedida():
     print("SARA: Hasta luego 👋")
+    _emitir_evento_simple("despedida")
 
 
 PALABRAS_SALIDA = {"salir", "exit", "quit", "adios", "chao", "bye"}
@@ -96,6 +108,8 @@ def es_comando_salida(texto):
 
 
 def preguntar_si_no(mensaje):
+    # En modo GUI: emitir pregunta y esperar respuesta por WS
+    # Por ahora sigue funcionando igual en terminal para compatibilidad
     while True:
         try:
             respuesta = input(f"SARA: {mensaje} (si/no): ").strip().lower()
@@ -145,8 +159,8 @@ def solicitar_datos_comando():
             print("     [3] sistema (comando de terminal)")
             print("     [4] sistema_control (comando del sistema operativo)")
             tipo_opcion = input("  → Elige 1, 2, 3 o 4: ").strip()
-            tipos       = {"1": "web", "2": "app", "3": "sistema", "4": "sistema_control"}
-            tipo        = tipos.get(tipo_opcion)
+            tipos = {"1": "web", "2": "app", "3": "sistema", "4": "sistema_control"}
+            tipo = tipos.get(tipo_opcion)
             if tipo:
                 break
             print("SARA: Opción inválida. Elige 1, 2, 3 o 4.")
@@ -206,8 +220,8 @@ def solicitar_acciones_multiples():
                 print(f"  → Tipo:")
                 print("     [1] web  [2] app  [3] sistema  [4] sistema_control")
                 tipo_opcion = input("  → Elige 1, 2, 3 o 4: ").strip()
-                tipos       = {"1": "web", "2": "app", "3": "sistema", "4": "sistema_control"}
-                tipo        = tipos.get(tipo_opcion)
+                tipos = {"1": "web", "2": "app", "3": "sistema", "4": "sistema_control"}
+                tipo = tipos.get(tipo_opcion)
                 if tipo:
                     break
                 print("SARA: Opción inválida. Elige 1, 2, 3 o 4 .")
@@ -227,6 +241,59 @@ def solicitar_acciones_multiples():
         return acciones if acciones else None
     except KeyboardInterrupt:
         return None
-    
 
- 
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FUNCIONES DE EMISIÓN GUI — privadas, nunca lanzan excepciones
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _emitir_seguro(tipo: str, **kwargs):
+    """Wrapper seguro para emitir eventos al servidor WebSocket."""
+    try:
+        import server
+        if server.servidor_activo():
+            server.emitir(tipo, **kwargs)
+    except Exception:
+        pass
+
+
+def _emitir_mensaje_usuario(texto: str):
+    _emitir_seguro("mensaje_usuario", texto=texto)
+
+
+def _emitir_respuesta(texto: str):
+    _emitir_seguro("respuesta_parcial", texto=texto)
+
+
+def _emitir_error(mensaje: str):
+    _emitir_seguro("error_sara", mensaje=mensaje)
+
+
+def _emitir_confianza(confianza: float):
+    _emitir_seguro("confianza", valor=round(confianza, 4), porcentaje=round(confianza * 100, 1))
+
+
+def _emitir_separador():
+    _emitir_seguro("separador")
+
+
+def _emitir_estado_voz(activo: bool):
+    _emitir_seguro("voz_estado", activo=activo, escuchando=False)
+
+
+def _emitir_evento_simple(tipo: str):
+    _emitir_seguro(tipo)
+
+
+# Función pública para emitir thinking desde sara.py
+def emitir_thinking(fase: str = "procesando"):
+    """
+    Emite el estado de 'pensando' al frontend.
+    Llamar antes de brain.procesar() y después al terminar.
+    Fases: 'procesando' | 'arbitro' | 'agentes' | 'voz' | 'aprendiendo' | None
+    """
+    if fase is None:
+        _emitir_seguro("thinking_stop")
+    else:
+        _emitir_seguro("thinking", fase=fase)
+

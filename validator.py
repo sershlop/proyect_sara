@@ -98,19 +98,9 @@ class ValidadorEntrada:
             return False, ""
 
         texto_norm = normalizar_texto(texto)
-        palabras = texto_norm.split()
+        palabras   = texto_norm.split()
 
-        # Ruido obvio
-        for p in palabras:
-            if p in self.PALABRAS_RUIDO:
-                logger.debug("validator", f"Ruido obvio detectado: '{texto[:30]}'")
-                return False, "No entiendo eso. ¿Puedes intentarlo con otra frase?"
-            if len(set(p)) == 1 and len(p) >= 4:
-                # repetición excesiva: "zzzz", "aaaa"
-                logger.debug("validator", f"Repetición detectada: '{texto[:30]}'")
-                return False, "Eso parece ruido. ¿Puedes escribirlo de otra forma?"
-
-        # Sin estructura mínima
+        # ── Límite de longitud ────────────────────────────────────────
         if len(palabras) == 0:
             return False, ""
         if len(palabras) > 50:
@@ -118,15 +108,73 @@ class ValidadorEntrada:
         if all(len(p) <= 1 for p in palabras):
             return False, "No entendí eso. ¿Puedes ser más claro?"
 
-        # Detección rápida con spellchecker si está disponible
+        # ── Ruido obvio — palabras del set ────────────────────────────
+        for p in palabras:
+            if p in self.PALABRAS_RUIDO:
+                logger.debug("validator", f"Ruido obvio: '{texto[:30]}'")
+                return False, "No entiendo eso. ¿Puedes intentarlo con otra frase?"
+            # Repetición excesiva de un solo carácter: "zzzz", "aaaa"
+            if len(set(p)) == 1 and len(p) >= 4:
+                logger.debug("validator", f"Repetición detectada: '{texto[:30]}'")
+                return False, "Eso parece ruido. ¿Puedes escribirlo de otra forma?"
+
+# ── Detección de texto sin sentido por análisis de patrón ────
+        from collections import Counter
+        VOCALES = set('aeiouáéíóú')
+
+        # Whitelist de palabras técnicas/inglesas conocidas en SARA
+        # que tienen patrones fonéticos atípicos en español pero son válidas
+        PALABRAS_TECNICAS = {
+            'twitch','chrome','scripts','github','discord','whatsapp','bluetooth',
+            'netflix','spotify','youtube','google','gmail','notion','canva',
+            'classroom','moodle','deepseek','gemini','groq','figma','slack',
+            'trello','asana','zoom','teams','outlook','onedrive','dropbox',
+            'arduino','java','python','script','config','brain','splitter',
+            'commands','database','embeddings','learning','searcher','social',
+            'system','windows','android','desktop','download','documents',
+            'brawlhalla','cuphead','brotato','algodoo','pearson','myenglishlab',
+            'twitch','kotta','discord','netflix','spotify','classroom',
+        }
+
+        def _es_palabra_ruido(palabra):
+            if len(palabra) < 4 or not palabra.isalpha():
+                return False
+            if palabra in PALABRAS_TECNICAS:
+                return False
+            vocales = sum(1 for c in palabra if c in VOCALES) / len(palabra)
+            # Señal 1: casi sin vocales
+            if vocales < 0.15:
+                return True
+            # Señal 2: pocas vocales + bigramas consonante-consonante altos
+            bigramas_cc = total_b = 0
+            for i in range(len(palabra) - 1):
+                a, b = palabra[i], palabra[i+1]
+                if a.isalpha() and b.isalpha():
+                    total_b += 1
+                    if a not in VOCALES and b not in VOCALES:
+                        bigramas_cc += 1
+            ratio_cc = bigramas_cc / total_b if total_b else 0
+            if vocales < 0.22 and ratio_cc > 0.55:
+                return True
+            return False
+
+        palabras_sin_sentido = sum(1 for p in palabras if _es_palabra_ruido(p))
+        palabras_analizables = [p for p in palabras if len(p) >= 4 and p.isalpha()]
+
+        if palabras_analizables:
+            ratio_sin_sentido = palabras_sin_sentido / len(palabras_analizables)
+            if ratio_sin_sentido >= 0.60:
+                logger.debug("validator", f"Texto sin sentido ({ratio_sin_sentido:.0%}): '{texto[:40]}'")
+                return False, "No logro entender eso. ¿Puedes escribirlo de otra forma?"
+
+        # ── Spellchecker si disponible (refuerzo adicional) ───────────
         palabras_a_chequear = [p for p in palabras if len(p) > 2 and p.isalpha()]
         if self.spell and palabras_a_chequear:
             try:
                 desconocidas = self.spell.unknown(palabras_a_chequear)
                 ratio = len(desconocidas) / max(len(palabras_a_chequear), 1)
                 if ratio >= self.UMBRAL_PALABRAS_DESCONOCIDAS:
-                    logger.debug("validator", f"Alta proporción de palabras desconocidas: {desconocidas}")
-                    # sugerencia rápida para la primera desconocida
+                    logger.debug("validator", f"Palabras desconocidas: {desconocidas}")
                     suger = None
                     try:
                         suger = self.spell.correction(next(iter(desconocidas)))
@@ -137,21 +185,9 @@ class ValidadorEntrada:
                         msg += f" Tal vez quisiste decir '{suger}'?"
                     return False, msg
             except Exception:
-                # Falla el spellchecker; continuar con otras reglas
                 pass
 
-        # Palabras sin vocales (muy probablemente typo o ruido) — fallback
-        VOCALES = set('aeiou')
-        sin_vocales = 0
-        for p in palabras:
-            if len(p) > 2 and not any(c in VOCALES for c in p):
-                sin_vocales += 1
-        if sin_vocales > 0 and sin_vocales / max(len(palabras), 1) > 0.6:
-            logger.debug("validator", f"Muchas palabras sin vocales: '{texto[:30]}'")
-            return False, "No logro entender esas palabras. ¿Puedes escribirlo diferente?"
-
         return True, ""
-
     def obtener_sugerencia(self, entrada):
         texto_norm = normalizar_texto(entrada)
         palabras = texto_norm.split()

@@ -1,0 +1,15 @@
+{
+  "name": "sara-gui",
+  "version": "0.3.0",
+  "description": "SARA — Interfaz visual oficial",
+  "main": "gui/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7"
+  },
+  "author": "Sergio",
+  "license": "MIT"
+}

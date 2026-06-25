@@ -1,4 +1,4 @@
-# 📁 logger.py
+# 📁 logger.py — v2.0 con emisión WebSocket
 import sys
 import traceback
 from database import guardar_log, guardar_log_comando, guardar_log_pregunta, guardar_log_error
@@ -12,15 +12,36 @@ def _console_supports_emoji():
     except Exception:
         return False
 
+
 NIVELES = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
 NIVEL_CONSOLA = "DEBUG"
-NIVEL_BD      = "INFO"
+NIVEL_BD = "INFO"
+
+
+# ── Emisión WebSocket ─────────────────────────────────────────────────────────
+def _emitir_gui(nivel: str, tipo: str, mensaje: str, detalle: str = ""):
+    """
+    Emite el evento de log al frontend si el servidor está activo.
+    Nunca lanza excepciones — el logger no puede fallar por culpa de la GUI.
+    """
+    try:
+        import server
+        if server.servidor_activo():
+            server.emitir(
+                "debug",
+                modulo=tipo,
+                mensaje=mensaje,
+                detalle=detalle,
+                nivel=nivel.lower()
+            )
+    except Exception:
+        pass
 
 
 def _log(nivel, tipo, mensaje, detalle=""):
-    nivel_num         = NIVELES.get(nivel, 1)
+    nivel_num = NIVELES.get(nivel, 1)
     nivel_consola_num = NIVELES.get(NIVEL_CONSOLA, 0)
-    nivel_bd_num      = NIVELES.get(NIVEL_BD, 1)
+    nivel_bd_num = NIVELES.get(NIVEL_BD, 1)
 
     if nivel_num >= nivel_consola_num:
         _imprimir_consola(nivel, tipo, mensaje, detalle)
@@ -30,6 +51,10 @@ def _log(nivel, tipo, mensaje, detalle=""):
             guardar_log(f"{nivel}:{tipo}", mensaje, detalle)
         except Exception as e:
             print(f"[LOGGER BD ERROR] No se pudo guardar log: {e}")
+
+    # Emitir a GUI siempre que sea INFO o superior
+    if nivel_num >= NIVELES.get("INFO", 1):
+        _emitir_gui(nivel, tipo, mensaje, detalle)
 
 
 def _imprimir_consola(nivel, tipo, mensaje, detalle):
@@ -87,6 +112,18 @@ def log_comando(comando, exito=True):
         guardar_log_comando(registro)
         if exito:
             info("comando", f"Ejecutado: {registro['nombre']}", f"id={registro['id_comando']}")
+            # Emitir evento específico de comando ejecutado a la GUI
+            try:
+                import server
+                if server.servidor_activo():
+                    server.emitir(
+                        "comando_ejecutado",
+                        nombre=registro["nombre"],
+                        exito=True,
+                        id=registro["id_comando"]
+                    )
+            except Exception:
+                pass
         else:
             warning("comando", f"Falló: {registro['nombre']}", f"id={registro['id_comando']}")
     except Exception as e:

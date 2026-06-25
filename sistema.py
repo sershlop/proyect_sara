@@ -166,6 +166,7 @@ def pista_anterior():
 def subir_volumen(cantidad=None):
     """Subir volumen del sistema. Si cantidad=None, sube 10 unidades."""
     try:
+        # Si no se especifica cantidad, el salto por defecto es 10
         cantidad = cantidad or 10
 
         if SISTEMA == "windows":
@@ -177,9 +178,11 @@ def subir_volumen(cantidad=None):
                 return _resultado(True, f"Volumen subido a {int(nuevo * 100)}%", "sistema")
             except ImportError:
                 import ctypes
-                for _ in range(cantidad // 10):
+                # Windows altera el volumen de 2 en 2 por cada pulsación de tecla virtual (0xAF).
+                # Dividimos entre 2 para que el bucle pulse las veces necesarias para alcanzar la 'cantidad'.
+                for _ in range(cantidad // 2):
                     ctypes.windll.user32.keybd_event(0xAF, 0, 0, 0)
-                    ctypes.windll.user32.keybd_event(0xAF, 0, 2, 0)
+                    ctypes.windll.user32.keybd_event(0xAF, 0, 2, 0)  # Corregido flag de liberación a 2 (KEYEVENTF_KEYUP)
                 return _resultado(True, f"Volumen subido {cantidad} unidades", "sistema")
 
         elif SISTEMA == "darwin":
@@ -195,13 +198,13 @@ def subir_volumen(cantidad=None):
             try:
                 # Intentar con pactl (PulseAudio)
                 subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"+{cantidad}%"],
-                             capture_output=True, timeout=2)
+                             capture_output=True, timeout=10)
                 return _resultado(True, f"Volumen subido {cantidad}%", "sistema")
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 try:
                     # Fallback con amixer (ALSA)
                     subprocess.run(["amixer", "set", "Master", f"{cantidad}%+"],
-                                 capture_output=True, timeout=2)
+                                 capture_output=True, timeout=10)
                     return _resultado(True, f"Volumen subido {cantidad}%", "sistema")
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     return _resultado(False, "No se pudo controlar volumen - instala pactl o amixer", "sistema")
@@ -212,9 +215,11 @@ def subir_volumen(cantidad=None):
         logger.log_excepcion("sistema", "subir_volumen", e)
         return _resultado(False, f"Error al subir volumen: {e}", "sistema")
 
+
 def bajar_volumen(cantidad=None):
     """Bajar volumen del sistema. Si cantidad=None, baja 10 unidades."""
     try:
+        # Si no se especifica cantidad, el salto por defecto es 10
         cantidad = cantidad or 10
 
         if SISTEMA == "windows":
@@ -226,9 +231,11 @@ def bajar_volumen(cantidad=None):
                 return _resultado(True, f"Volumen bajado a {int(nuevo * 100)}%", "sistema")
             except ImportError:
                 import ctypes
-                for _ in range(cantidad // 10):
+                # Windows altera el volumen de 2 en 2 por cada pulsación de tecla virtual (0xAE).
+                # Dividimos entre 2 para que el bucle pulse las veces necesarias para alcanzar la 'cantidad'.
+                for _ in range(cantidad // 2):
                     ctypes.windll.user32.keybd_event(0xAE, 0, 0, 0)
-                    ctypes.windll.user32.keybd_event(0xAE, 0, 2, 0)
+                    ctypes.windll.user32.keybd_event(0xAE, 0, 2, 0)  # Corregido flag de liberación a 2 (KEYEVENTF_KEYUP)
                 return _resultado(True, f"Volumen bajado {cantidad} unidades", "sistema")
 
         elif SISTEMA == "darwin":
@@ -241,12 +248,12 @@ def bajar_volumen(cantidad=None):
         elif SISTEMA == "linux":
             try:
                 subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"-{cantidad}%"],
-                             capture_output=True, timeout=2)
+                             capture_output=True, timeout=10)
                 return _resultado(True, f"Volumen bajado {cantidad}%", "sistema")
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 try:
                     subprocess.run(["amixer", "set", "Master", f"{cantidad}%-"],
-                                 capture_output=True, timeout=2)
+                                 capture_output=True, timeout=10)
                     return _resultado(True, f"Volumen bajado {cantidad}%", "sistema")
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     return _resultado(False, "No se pudo controlar volumen - instala pactl o amixer", "sistema")
@@ -256,7 +263,6 @@ def bajar_volumen(cantidad=None):
     except Exception as e:
         logger.log_excepcion("sistema", "bajar_volumen", e)
         return _resultado(False, f"Error al bajar volumen: {e}", "sistema")
-
 def silenciar_volumen():
     """Silenciar o activar sonido"""
     try:
@@ -270,7 +276,7 @@ def silenciar_volumen():
             except ImportError:
                 import ctypes
                 ctypes.windll.user32.keybd_event(0xAD, 0, 0, 0)
-                ctypes.windll.user32.keybd_event(0xAD, 0, 2, 0)
+                ctypes.windll.user32.keybd_event(0xAD, 0, 10, 0)
                 return _resultado(True, "Sonido silenciado/activado", "sistema")
 
         elif SISTEMA == "darwin":
@@ -283,7 +289,7 @@ def silenciar_volumen():
         elif SISTEMA == "linux":
             try:
                 subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"],
-                             capture_output=True, timeout=2)
+                             capture_output=True, timeout=10)
                 return _resultado(True, "Sonido silenciado/activado", "sistema")
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 try:

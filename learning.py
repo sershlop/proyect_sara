@@ -216,4 +216,4 @@ def verificar_similitud(texto1, texto2):
 def _resultado(exito, accion, mensaje):
     return {"exito": exito, "accion": accion, "mensaje": mensaje}
 
-    vdc
+    

@@ -12,18 +12,40 @@ EXE_EXTENSIONS = ('.exe', '.bat', '.cmd', '.msi', '.com')
 
 
 def ejecutar_comando_con_destino(accion_app, tipo_app, url_contenido, nombre_app):
-    """
-    Abre una app/navegador y luego navega al contenido indicado.
-    Compatible con cualquier app que acepte URLs como argumento.
-    """
     import subprocess
     import time
 
     try:
-        # Si hay URL y es un ejecutable, intentar pasarla como argumento
+        # ── NUEVO: múltiples URLs → abrir cada una ────────────────
+        if isinstance(url_contenido, list):
+            exitos = 0
+            for url in url_contenido:
+                try:
+                    if accion_app.endswith(".exe"):
+                        subprocess.Popen([accion_app, url],
+                                         stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL,
+                                         stdin=subprocess.DEVNULL)
+                    else:
+                        subprocess.Popen(["start", "", url], shell=True,
+                                         stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL)
+                    exitos += 1
+                    time.sleep(0.4)  # pequeña pausa entre pestañas
+                except Exception:
+                    pass
+            urls_str = ", ".join(url_contenido)
+            logger.info("commands", f"Múltiples URLs en '{nombre_app}': {urls_str}")
+            return {"exito": exitos > 0,
+                    "mensaje": f"Abriendo {exitos} página(s) en {nombre_app}..."}
+
+        # ── Caso simple — una sola URL ─────────────────────────────
         if url_contenido and accion_app.endswith(".exe"):
             try:
-                subprocess.Popen([accion_app, url_contenido])
+                subprocess.Popen([accion_app, url_contenido],
+                                 stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL,
+                                 stdin=subprocess.DEVNULL)
                 logger.info("commands",
                     f"App '{nombre_app}' abierta con contenido: {url_contenido}")
                 return {"exito": True,
@@ -31,17 +53,19 @@ def ejecutar_comando_con_destino(accion_app, tipo_app, url_contenido, nombre_app
             except Exception:
                 pass
 
-        # Si es tipo sistema (cmd, ruta), abrir con start
         if url_contenido and tipo_app in ("web", "sistema"):
-            subprocess.Popen(["start", "", url_contenido], shell=True)
+            subprocess.Popen(["start", "", url_contenido], shell=True,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
             return {"exito": True,
                     "mensaje": f"Abriendo '{url_contenido}' en {nombre_app}..."}
 
-        # Fallback: abrir app y luego URL por separado
         resultado_app = ejecutar_comando({"accion": accion_app, "tipo": tipo_app, "nombre": nombre_app})
         if url_contenido:
-            time.sleep(1.5)  # esperar que abra la app
-            subprocess.Popen(["start", "", url_contenido], shell=True)
+            time.sleep(1.5)
+            subprocess.Popen(["start", "", url_contenido], shell=True,
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
 
         return {"exito": True,
                 "mensaje": f"Abriendo '{url_contenido}' en {nombre_app}..."}
@@ -50,12 +74,12 @@ def ejecutar_comando_con_destino(accion_app, tipo_app, url_contenido, nombre_app
         logger.log_excepcion("commands", "ejecutar_comando_con_destino", e)
         return {"exito": False, "mensaje": f"Error: {e}"}
 def _ejecutar_sistema(comando_str, nombre=""):
-
     # ── Protocolos especiales → start directo ─────
     PROTOCOLOS = ("ms-settings:", "steam://", "spotify:", "shell:")
     if any(comando_str.strip().startswith(p) for p in PROTOCOLOS):
         try:
-            subprocess.Popen(f"start {comando_str.strip()}", shell=True)
+            subprocess.Popen(f"start {comando_str.strip()}", shell=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             logger.info("commands", f"Protocolo abierto: {comando_str}")
             return _resultado(True, f"Abriendo {nombre or comando_str}...", "sistema")
         except Exception as e:
@@ -70,7 +94,8 @@ def _ejecutar_sistema(comando_str, nombre=""):
 
     if comando_base in COMANDOS_INTERACTIVOS:
         try:
-            subprocess.Popen(f"start {comando_str}", shell=True)
+            subprocess.Popen(f"start {comando_str}", shell=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             logger.info("commands", f"Comando interactivo: {comando_str}")
             return _resultado(True, f"Abriendo {nombre or comando_str}...", "sistema")
         except Exception as e:
@@ -96,8 +121,7 @@ def _ejecutar_sistema(comando_str, nombre=""):
     except Exception as e:
         logger.log_excepcion("commands", comando_str, e)
         return _resultado(False, f"Error: {e}", "sistema")
-
-
+    
 def buscar_y_abrir_carpeta(nombre):
     try:
         nombre_limpio = _extraer_nombre_archivo(nombre)
@@ -314,7 +338,7 @@ def ejecutar_comando(comando):
     accion = comando.get("accion", "").strip()
     nombre = comando.get("nombre", "desconocido")
     
-    print(f"DEBUG ejecutar_comando → tipo='{tipo}' accion='{accion}'")
+    logger.debug("commands", f"ejecutar_comando → tipo='{tipo}' accion='{accion}'")
     
     try:
         if not accion:
@@ -354,7 +378,39 @@ def ejecutar_comando(comando):
 
         elif tipo == "sistema_control":
             return _ejecutar_control_sistema(accion, nombre)
+        elif tipo == "shell":
+            # ── PRAXIS: delegar a shell.py para comandos de sistema directo ──
+            try:
+                import shell as _shell
+                accion_shell = accion or nombre
+                return _shell.ejecutar_controlado(accion_shell, contexto=nombre)
+            except Exception as e:
+                logger.log_excepcion("commands", "ejecutar_comando_shell", e)
+                return _resultado(False, f"Error al ejecutar comando shell: {e}", "shell")
 
+        elif tipo == "shell_info":
+            # Shell de solo lectura — directo sin confirmación
+            try:
+                import shell as _shell
+                return _shell.ejecutar_controlado(accion or nombre, contexto=nombre)
+            except Exception as e:
+                return _resultado(False, f"No pude ejecutar: {e}", "shell_info")
+        elif tipo == "gestionar_archivo":
+            # Gestión de archivos desde lenguaje natural via shell.py
+            try:
+                import shell as _shell
+                return _shell.gestionar_archivo(accion or nombre)
+            except Exception as e:
+                logger.log_excepcion("commands", "gestionar_archivo", e)
+                return _resultado(False, f"Error en gestión de archivo: {e}", "gestionar_archivo")
+        elif tipo == "dev":
+            try:
+                import shell as _shell
+                directorio = comando.get("directorio", ".")
+                return _shell.gestionar_dev(accion or nombre, directorio)
+            except Exception as e:
+                logger.log_excepcion("commands", "gestionar_dev", e)
+                return _resultado(False, f"Error en automatización de desarrollo: {e}", "dev")
         else:
             return _resultado(False, f"Tipo no reconocido: '{tipo}'", tipo)
 
@@ -447,19 +503,17 @@ def _abrir_app(ruta, nombre=""):
             return _resultado(False, f"No se encontró en: {ruta_limpia}", "app")
 
         if SISTEMA == "win32":
-            es_ejecutable = ruta_limpia.lower().endswith(EXE_EXTENSIONS)
-            es_carpeta    = os.path.isdir(ruta_limpia)
-
-            if es_carpeta or not es_ejecutable:
-                os.startfile(ruta_limpia)
-            else:
-                directorio = os.path.dirname(ruta_limpia)
-                subprocess.Popen(
-                    ruta_limpia,
-                    cwd=directorio,
-                    shell=True,
-                    creationflags=subprocess.DETACHED_PROCESS
-                )
+            directorio = os.path.dirname(ruta_limpia) or None
+            subprocess.Popen(
+                ["cmd", "/c", "start", "", ruta_limpia],
+                cwd=directorio,
+                shell=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
+            )
+        
         elif SISTEMA == "darwin":
             subprocess.Popen(["open", ruta_limpia])
         elif SISTEMA.startswith("linux"):
@@ -468,6 +522,12 @@ def _abrir_app(ruta, nombre=""):
             return _resultado(False, f"SO no soportado: {SISTEMA}", "app")
 
         logger.info("commands", f"App abierta: {nombre or ruta_limpia}")
+        # Registrar acceso en índice para mejorar ranking
+        try:
+            from database import incrementar_acceso_archivo
+            incrementar_acceso_archivo(ruta_limpia)
+        except Exception:
+            pass
         return _resultado(True, f"Abriendo {nombre or 'el archivo'}...", "app")
 
     except PermissionError:
@@ -478,39 +538,6 @@ def _abrir_app(ruta, nombre=""):
     
 
 
-def _ejecutar_sistema(comando_str, nombre=""):
-    COMANDOS_INTERACTIVOS = {
-        "cmd", "powershell", "python", "node", "bash", "wsl", "ipython"
-    }
-    comando_base = comando_str.strip().lower().split()[0]
-
-    if comando_base in COMANDOS_INTERACTIVOS:
-        try:
-            subprocess.Popen(f"start {comando_str}", shell=True)
-            logger.info("commands", f"Comando interactivo: {comando_str}")
-            return _resultado(True, f"Abriendo {nombre or comando_str}...", "sistema")
-        except Exception as e:
-            logger.log_excepcion("commands", comando_str, e)
-            return _resultado(False, f"No se pudo abrir: {e}", "sistema")
-
-    try:
-        resultado = subprocess.run(
-            comando_str, shell=True,
-            capture_output=True, text=True, timeout=10
-        )
-        if resultado.returncode == 0:
-            salida = resultado.stdout.strip() or "Comando ejecutado correctamente."
-            logger.info("commands", f"Sistema: {comando_str[:50]}")
-            return _resultado(True, salida, "sistema")
-        else:
-            error_msg = resultado.stderr.strip() or "Error desconocido."
-            logger.error("commands", f"Falló: {comando_str[:50]}", error_msg[:100])
-            return _resultado(False, f"El comando falló: {error_msg}", "sistema")
-    except subprocess.TimeoutExpired:
-        return _resultado(False, "El comando tardó demasiado.", "sistema")
-    except Exception as e:
-        logger.log_excepcion("commands", comando_str, e)
-        return _resultado(False, f"Error: {e}", "sistema")
 
 
 def _parse_accion_funcion(accion):

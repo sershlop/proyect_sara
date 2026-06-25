@@ -3,10 +3,6 @@ venv_sara/
 venv/
 env/
 
-echo ".ollama/" >> .gitignore
-echo "*.zip" >> .gitignore
-echo ".ollama.zip" >> .gitignore
-
 # Modelos de IA — archivos enormes
 *.dll
 *.pth
