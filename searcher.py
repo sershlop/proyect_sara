@@ -44,38 +44,44 @@ VERBOS_ABRIR = {
 PLATAFORMAS = {
     # Nombre → (keywords de detección, URL de búsqueda, URL base)
     "youtube": {
-        "keywords": {
-            "youtube", "yotube", "yutube", "yt"
-        },
+        "keywords": {"youtube", "yotube", "yutube", "yt"},
         "url_busqueda": "https://www.youtube.com/results?search_query={}",
-        "url_base":     "https://www.youtube.com",
-        "tipo":         "video"
+        "url_base": "https://www.youtube.com",
+        "tipo": "video"
     },
     "google": {
-        "keywords": {
-            "google", "buscador", "web", "internet"
-        },
+        "keywords": {"google", "buscador", "web", "internet"},
         "url_busqueda": "https://www.google.com/search?q={}",
-        "url_base":     "https://www.google.com",
-        "tipo":         "web"
+        "url_base": "https://www.google.com",
+        "tipo": "web"
     },
     "wikipedia": {
-        "keywords": {
-            "wikipedia", "wiki", "enciclopedia"
-        },
+        "keywords": {"wikipedia", "wiki", "enciclopedia"},
         "url_busqueda": "https://es.wikipedia.org/wiki/Special:Search?search={}",
-        "url_base":     "https://es.wikipedia.org",
-        "tipo":         "informacion"
+        "url_base": "https://es.wikipedia.org",
+        "tipo": "informacion"
     },
     "spotify": {
-        "keywords": {
-            "spotify", "musica", "música", "cancion", "canción"
-        },
+        "keywords": {"spotify", "musica", "música", "cancion", "canción"},
         "url_busqueda": "https://open.spotify.com/search/{}",
-        "url_base":     "https://open.spotify.com",
-        "tipo":         "musica"
-    }
+        "url_base": "https://open.spotify.com",
+        "tipo": "musica"
+    }, 
+   
+    "bing": {
+        "keywords": {"bing", "bingbuscador"},
+        "url_busqueda": "https://www.bing.com/search?q={}",
+        "url_base": "https://www.bing.com",
+        "tipo": "web"
+    },
+    "duckduckgo": {
+        "keywords": {"duckduckgo", "duck", "ddg"},
+        "url_busqueda": "https://duckduckgo.com/?q={}",
+        "url_base": "https://duckduckgo.com",
+        "tipo": "web"
+    },
 }
+
 
 # Plataforma por defecto cuando no se especifica
 PLATAFORMA_DEFAULT = "google"
@@ -96,7 +102,8 @@ PALABRAS_ELIMINAR = {
     "youtube", "google", "wikipedia", "spotify",
     "wiki", "yt",
     "cancion", "canción", "buscador", "web",
-    "internet", "enciclopedia", "privado"
+    "internet", "enciclopedia", "privado",
+    "bing", "duckduckgo", "duck", "ddg"
 }
 
 

@@ -1,28 +1,14 @@
 # 📁 social.py
-# Módulo de respuestas sociales de SARA
-# Maneja saludos, despedidas, agradecimientos y entradas cortas
-# Se ejecuta ANTES de brain.py — no toca BD ni contexto
-# Respuestas variadas para no sonar repetitiva
-from config import MAX_PALABRAS_CORTAS
 import random
-from database import guardar_interaccion_social
 from utils import normalizar_texto
+from database import guardar_interaccion_social
 import logger
 
-# ──────────────────────────────────────────────
-# 🔹 CONFIGURACIÓN
-# ──────────────────────────────────────────────
-
-# Longitud máxima de palabras para considerar "entrada corta"
-
-
-# ──────────────────────────────────────────────
-# 🔹 PATRONES DE ENTRADAS SOCIALES
-# ──────────────────────────────────────────────
+MAX_PALABRAS_CORTAS = 3
 
 SALUDOS = {
     "hola", "hello", "hi", "hey", "buenas", "buenos dias",
-    "buenos tardes", "buenas noches", "buen dia", "buenas tardes",
+    "buenas tardes", "buenas noches", "buen dia",
     "que tal", "que onda", "que pedo", "que hay", "que hubo",
     "como estas", "como esta", "como andas", "como te va",
     "como estas sara", "hola sara", "hey sara", "buenas sara",
@@ -32,7 +18,7 @@ SALUDOS = {
 DESPEDIDAS = {
     "adios", "hasta luego", "bye", "chao", "chau",
     "nos vemos", "hasta pronto", "hasta manana",
-    "me voy", "ahi nos vemos", "cuídate", "cuidate",
+    "me voy", "ahi nos vemos", "cuidate",
     "hasta la proxima", "bye bye"
 }
 
@@ -46,8 +32,7 @@ AGRADECIMIENTOS = {
 AFIRMACIONES = {
     "si", "sip", "yes", "claro", "ok", "okey", "okay",
     "dale", "va", "sale", "entendido", "perfecto",
-    "de acuerdo", "está bien", "esta bien", "andale",
-    "simon", "nel", "pos si", "efectivamente"
+    "de acuerdo", "esta bien", "andale", "simon"
 }
 
 NEGACIONES = {
@@ -59,18 +44,24 @@ ELOGIOS = {
     "eres buena", "que inteligente", "muy bien sara",
     "bien hecho", "excelente sara", "que lista",
     "me gustas sara", "eres util", "buen trabajo",
-    "te pasas", "chida", "chido", "cool", "gracias"
-}
+    "te pasas", "chida", "chido", "cool"
+} 
 
 INSULTOS_LEVES = {
     "tonto", "tonta", "mensa", "menso", "inutil",
     "no sirves", "que mala eres", "estas mal"
 }
 
-
-# ──────────────────────────────────────────────
-# 🔹 RESPUESTAS VARIADAS
-# ──────────────────────────────────────────────
+CORRECCIONES = {
+    "eso esta mal", "estas mal", "te equivocaste",
+    "no es correcto", "eso es incorrecto", "error",
+    "no es asi", "incorrecto", "eso no es",
+    "no es eso", "esta mal", "te equivocas",
+    "eso no es correcto", "falso", "no es verdad",
+    "corrijo", "correccion", "en realidad",
+    "en realidad es", "lo correcto es",
+    "deberia ser", "no es exactamente"
+}
 
 RESPUESTAS_SALUDO = [
     "¡Hola! ¿En qué puedo ayudarte?",
@@ -92,29 +83,25 @@ RESPUESTAS_AGRADECIMIENTO = [
     "¡Con gusto! ¿Hay algo más en que pueda ayudarte?",
     "¡Para eso estoy! ¿Algo más?",
     "¡De nada! Es un placer ayudarte.",
-    "¡No hay de qué! ¿Necesitas algo más?",
-    "¡Claro que sí! ¿En qué más te puedo ayudar?"
+    "¡No hay de qué! ¿Necesitas algo más?"
 ]
 
 RESPUESTAS_AFIRMACION = [
     "Entendido. ¿En qué más te puedo ayudar?",
     "De acuerdo. ¿Hay algo más?",
-    "Perfecto. Dime si necesitas algo más.",
-    "¡Listo! ¿Algo más en que pueda ayudarte?"
+    "Perfecto. Dime si necesitas algo más."
 ]
 
 RESPUESTAS_NEGACION = [
     "Está bien. Aquí estaré si me necesitas.",
     "De acuerdo. Dime si cambias de opinión.",
-    "Sin problema. ¿Hay algo más en que pueda ayudar?",
-    "Entendido. ¿Necesitas algo más?"
+    "Sin problema. ¿Hay algo más en que pueda ayudar?"
 ]
 
 RESPUESTAS_ELOGIO = [
     "¡Gracias! Hago mi mejor esfuerzo.",
     "¡Qué amable! Seguiré aprendiendo para ayudarte mejor.",
-    "¡Muchas gracias! ¿En qué más te puedo ayudar?",
-    "¡Gracias! Eso me motiva a seguir mejorando."
+    "¡Muchas gracias! ¿En qué más te puedo ayudar?"
 ]
 
 RESPUESTAS_INSULTO = [
@@ -129,27 +116,9 @@ RESPUESTAS_CORTA_SIN_TEMA = [
     "¿Podrías ser más específico?",
     "Necesito un poco más de información para ayudarte."
 ]
-CORRECCIONES = {
-    "eso esta mal", "estas mal", "te equivocaste",
-    "no es correcto", "eso es incorrecto", "error",
-    "no es asi", "incorrecto", "eso no es",
-    "no es eso", "esta mal", "te equivocas",
-    "eso no es correcto", "no", "falso",
-    "no es verdad", "eso no es verdad",
-    "corrijo", "correccion", "en realidad",
-    "en realidad es", "lo correcto es",
-    "deberia ser", "no es exactamente"
-}
 
 
-# ──────────────────────────────────────────────
-# 🔹 FUNCIÓN PRINCIPAL
-# ──────────────────────────────────────────────
 def detectar_entrada_social(texto):
-    """
-    Detecta si el texto es una entrada social.
-    Retorna: (es_social: bool, respuesta: str)
-    """
     if not texto or not texto.strip():
         return False, ""
 
@@ -190,30 +159,28 @@ def detectar_entrada_social(texto):
     return False, ""
 
 
+def es_correccion(texto):
+    texto_norm = normalizar_texto(texto)
+    if texto_norm in CORRECCIONES:
+        return True
+    PALABRAS_CORRECCION = ("mal", "incorrecto", "equivocaste", "error",
+                           "falso", "no es", "correccion", "en realidad")
+    for palabra in PALABRAS_CORRECCION:
+        if palabra in texto_norm.split():
+            return True
+    return False
+
+
 def _registrar(tipo_social, texto):
-    """
-    Guarda la interacción social en BD.
-    Uso interno — no llamar desde fuera.
-    """
     try:
         guardar_interaccion_social(texto, tipo_social)
         logger.debug("social", f"{tipo_social} registrado: '{texto[:30]}'")
     except Exception as e:
         logger.error("social", f"Error registrando social: {e}")
 
-# ──────────────────────────────────────────────
-# 🔹 DETECCIONES AUXILIARES
-# ──────────────────────────────────────────────
 
 def _empieza_con_saludo(texto):
-    """
-    Detecta saludos al inicio aunque vengan con más texto.
-    "hola sara como estas" → True
-    """
-    SALUDOS_INICIO = (
-        "hola ", "hey ", "buenas ", "buenos ",
-        "que tal ", "que onda ", "como estas "
-    )
+    SALUDOS_INICIO = ("hola ", "hey ", "buenas ", "buenos ", "que tal ", "que onda ", "como estas ")
     for saludo in SALUDOS_INICIO:
         if texto.startswith(saludo):
             return True
@@ -221,80 +188,32 @@ def _empieza_con_saludo(texto):
 
 
 def _contiene_agradecimiento(texto):
-    """
-    Detecta agradecimientos aunque vengan con más texto.
-    "muchas gracias sara" → True
-    """
-    PALABRAS_GRACIAS = ("gracias", "agradezco", "thank")
-    for palabra in PALABRAS_GRACIAS:
+    for palabra in ("gracias", "agradezco", "thank"):
         if palabra in texto.split():
             return True
     return False
 
 
 def _contiene_elogio(texto):
-    """Detecta elogios parciales."""
-    PALABRAS_ELOGIO = ("inteligente", "lista", "util", "chida", "buena sara")
-    for palabra in PALABRAS_ELOGIO:
+    for palabra in ("inteligente", "lista", "util", "chida", "buena sara"):
         if palabra in texto:
             return True
     return False
 
 
 def _contiene_insulto(texto):
-    """Detecta insultos leves parciales."""
-    PALABRAS_INSULTO = ("inutil", "tonta", "mensa", "no sirves")
-    for palabra in PALABRAS_INSULTO:
+    for palabra in ("inutil", "tonta", "mensa", "no sirves"):
         if palabra in texto:
             return True
     return False
 
-def es_correccion(texto):
-    """
-    Detecta si el usuario está corrigiendo la última respuesta de SARA.
-    Retorna: True si es una corrección
-    """
-    texto_norm = normalizar_texto(texto)
-
-    # Coincidencia exacta
-    if texto_norm in CORRECCIONES:
-        return True
-
-    # Coincidencia parcial — contiene palabra clave de corrección
-    PALABRAS_CORRECCION = (
-        "mal", "incorrecto", "equivocaste", "error",
-        "falso", "no es", "correccion", "en realidad"
-    )
-    for palabra in PALABRAS_CORRECCION:
-        if palabra in texto_norm.split():
-            return True
-
-    return False
 
 def _es_entrada_corta_sin_tema(palabras):
-    """
-    Detecta entradas cortas que no tienen tema identificable.
-    No aplica si la entrada corta ES un comando o pregunta válida.
-
-    "ok"     → True  (sin tema)
-    "si"     → False (ya manejado como afirmación)
-    "luna"   → False (tiene tema — podría ser comando)
-    "que"    → True  (incompleta)
-    """
-    # Solo aplicar a entradas muy cortas
     if len(palabras) > MAX_PALABRAS_CORTAS:
         return False
-
-    # Palabras sueltas sin significado completo
     PALABRAS_VACIAS_SOLAS = {
         "este", "eso", "esa", "asi", "pues",
         "mmm", "hmm", "ah", "oh", "uh",
         "que", "como", "cuando", "donde"
     }
-
-    # Si todas las palabras son vacías → entrada sin tema
-    todas_vacias = all(p in PALABRAS_VACIAS_SOLAS for p in palabras)
-    if todas_vacias:
-        return True
-
-    return False
+    return all(p in PALABRAS_VACIAS_SOLAS for p in palabras)

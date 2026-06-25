@@ -1,68 +1,30 @@
-# 📁 io_manager.py
-# Módulo de entrada y salida de SARA
-# Todo lo que el usuario ve y escribe pasa por aquí
-# Si en el futuro se agrega GUI o voz, solo se modifica este archivo
 
-# ──────────────────────────────────────────────
-# 🔹 ENTRADA
-# ──────────────────────────────────────────────
+# 📁 io_manager.py — v2.0 con emisión WebSocket
 _modo_voz = False
 _voice_module = None
-_modo_gui = False
-_gui_get_input = None
-_gui_show_response = None
-_gui_show_prompt = None
+
 
 def activar_modo_voz(voice_mod):
-    """Activa el modo voz con el módulo voice."""
     global _modo_voz, _voice_module
-    _modo_voz     = True
+    _modo_voz = True
     _voice_module = voice_mod
     print("🎤 Modo voz activado. Di 'sara' para activarme.")
+    _emitir_estado_voz(True)
 
 
 def desactivar_modo_voz():
-    """Desactiva el modo voz."""
     global _modo_voz, _voice_module
-    _modo_voz     = False
+    _modo_voz = False
     _voice_module = None
     print("⌨️  Modo voz desactivado. Volviendo a modo texto.")
+    _emitir_estado_voz(False)
 
 
 def esta_en_modo_voz():
-    """Retorna True si el modo voz está activo."""
     return _modo_voz
 
 
-def activar_modo_gui(get_input_callback, show_response_callback, show_prompt_callback=None):
-    """Activa el modo GUI con callbacks para entrada, salida y prompts."""
-    global _modo_gui, _gui_get_input, _gui_show_response, _gui_show_prompt
-    _modo_gui = True
-    _gui_get_input = get_input_callback
-    _gui_show_response = show_response_callback
-    _gui_show_prompt = show_prompt_callback
-    print("🖥️  Modo GUI activado.")
-
-
-def esta_en_modo_gui():
-    """Retorna True si el modo GUI está activo."""
-    return _modo_gui
-
-
-def show_prompt(question):
-    """Muestra un prompt al usuario. En GUI usa callback, en terminal usa input."""
-    if _modo_gui and _gui_show_prompt:
-        return _gui_show_prompt(question)
-    else:
-        try:
-            return input(question).strip()
-        except KeyboardInterrupt:
-            return None
-
-
 def obtener_input():
-    if _modo_gui and _gui_get_input:
-        return _gui_get_input()
     if _modo_voz and _voice_module:
         primer_ciclo = True
         while True:
@@ -70,19 +32,18 @@ def obtener_input():
                 print("💤 SARA: En espera... (di 'sara' para activarme)")
                 primer_ciclo = False
 
-            # ── NUEVO: desempaquetar tupla ────
             detectado, comando_inline = _voice_module.escuchar_wakeword()
 
             if detectado:
-                # ── CASO 1: Frase unida "sara abre youtube" ──
                 if comando_inline:
                     print(f"🗣️  Tú dijiste: 'sara {comando_inline}'")
-                    return comando_inline  # ← directo sin segunda escucha
+                    _emitir_mensaje_usuario(f"sara {comando_inline}")
+                    return comando_inline
 
-                # ── CASO 2: Solo "sara" → escuchar comando ──
                 texto = _voice_module.escuchar_comando()
                 if texto:
                     print(f"🗣️  Tú dijiste: '{texto}'")
+                    _emitir_mensaje_usuario(texto)
                     return texto
 
                 print("💤 SARA: En espera...")
@@ -90,6 +51,8 @@ def obtener_input():
 
     try:
         texto = input("Tú: ").strip()
+        if texto:
+            _emitir_mensaje_usuario(texto)
         return texto
     except KeyboardInterrupt:
         print("\nSARA: Hasta luego 👋")
@@ -100,89 +63,53 @@ def obtener_input():
 
 
 def mostrar_respuesta(texto):
-    """
-    Muestra respuesta en terminal.
-    En modo voz también la habla.
-    En modo GUI actualiza la interfaz y también imprime en terminal.
-    """
+    if not texto or not texto.strip():
+        return
     print(f"SARA: {texto}")
-
-    # En modo voz → hablar también
+    _emitir_respuesta(texto)
     if _modo_voz and _voice_module:
         _voice_module.hablar_async(texto)
 
-    # En modo GUI → actualizar interfaz
-    if _modo_gui and _gui_show_response:
-        _gui_show_response(texto)
 
 def mostrar_error(mensaje):
-    """
-    Muestra un mensaje de error al usuario.
-    """
     print(f"SARA [ERROR]: {mensaje}")
+    _emitir_error(mensaje)
 
 
 def mostrar_confianza(confianza):
-    """
-    Muestra el nivel de confianza de SARA en modo debug.
-    Solo usar durante desarrollo — desactivar en producción.
-    Ejemplo: SARA [confianza: 87.5%]
-    """
     porcentaje = round(confianza * 100, 1)
     print(f"SARA [confianza: {porcentaje}%]")
+    _emitir_confianza(confianza)
 
 
 def mostrar_bienvenida():
-    """
-    Mensaje inicial al arrancar SARA.
-    Centralizado aquí para fácil personalización futura.
-    """
-    print("=" * 40)
-    print("  SARA — Sistema Avanzado de Respuesta")
+    print("=" * 45)
+    print("  SARA — Sistema Autónomo de Razonamiento")
+    print("         Artificial v0.1.0")
     print("  Escribe 'salir' para cerrar")
-    print("=" * 40)
+    print("=" * 45)
 
 
 def mostrar_separador():
-    """
-    Separador visual entre interacciones.
-    Opcional — útil para conversaciones largas.
-    """
     print("-" * 40)
-
-
-# ──────────────────────────────────────────────
-# 🔹 COMANDOS ESPECIALES DE SALIDA
-# ──────────────────────────────────────────────
-
-PALABRAS_SALIDA = {"salir", "exit", "quit", "adios", "chao", "bye"}
-
-def es_comando_salida(texto):
-    """
-    Retorna True si el usuario quiere cerrar SARA.
-    Centralizado aquí para no repetir lógica en sara.py
-    Normaliza a minúsculas y quita espacios antes de comparar.
-    """
-    return texto.strip().lower() in PALABRAS_SALIDA
+    _emitir_separador()
 
 
 def mostrar_despedida():
-    """
-    Mensaje de cierre de SARA.
-    """
     print("SARA: Hasta luego 👋")
+    _emitir_evento_simple("despedida")
 
 
-# ──────────────────────────────────────────────
-# 🔹 FLUJO DE APRENDIZAJE INTERACTIVO
-# ──────────────────────────────────────────────
+PALABRAS_SALIDA = {"salir", "exit", "quit", "adios", "chao", "bye"}
+
+
+def es_comando_salida(texto):
+    return texto.strip().lower() in PALABRAS_SALIDA
+
 
 def preguntar_si_no(mensaje):
-    """
-    Hace una pregunta de si/no al usuario.
-    Acepta variantes: si/s/yes/y — no/n
-    Retorna: True si acepta, False si rechaza
-    """
+    # En modo GUI: emitir pregunta y esperar respuesta por WS
+    # Por ahora sigue funcionando igual en terminal para compatibilidad
     while True:
         try:
             respuesta = input(f"SARA: {mensaje} (si/no): ").strip().lower()
@@ -195,17 +122,75 @@ def preguntar_si_no(mensaje):
         except KeyboardInterrupt:
             return False
 
-def solicitar_acciones_multiples():
-    """
-    Guía al usuario para registrar múltiples acciones
-    en un comando compuesto.
 
-    Retorna: list[dict] con las acciones, o None si cancela
-    """
+def solicitar_respuesta_nueva():
     try:
-        print("\nSARA: ¿Cuántas acciones quieres agregar?")
-        print("      (Ejemplo: 3 para abrir VS Code, Chrome y Spotify)")
+        while True:
+            print("SARA: Escribe la respuesta (o 'cancelar' para omitir):")
+            respuesta = input("  → ").strip()
+            if respuesta.lower() == "cancelar":
+                return None
+            if not respuesta:
+                print("SARA: La respuesta no puede quedar vacía. Intenta de nuevo.")
+                continue
+            return respuesta
+    except KeyboardInterrupt:
+        return None
 
+
+def solicitar_datos_comando():
+    try:
+        print("SARA: Vamos a registrar el comando.")
+        print("      Escribe 'cancelar' en cualquier momento.\n")
+
+        while True:
+            accion = input("  → Acción (URL, ruta o comando): ").strip()
+            if accion.lower() == "cancelar":
+                return None
+            if not accion:
+                print("SARA: La acción no puede quedar vacía.")
+                continue
+            break
+
+        while True:
+            print("  → Tipo de comando:")
+            print("     [1] web    (abrir página)")
+            print("     [2] app    (abrir aplicación)")
+            print("     [3] sistema (comando de terminal)")
+            print("     [4] sistema_control (comando del sistema operativo)")
+            tipo_opcion = input("  → Elige 1, 2, 3 o 4: ").strip()
+            tipos = {"1": "web", "2": "app", "3": "sistema", "4": "sistema_control"}
+            tipo = tipos.get(tipo_opcion)
+            if tipo:
+                break
+            print("SARA: Opción inválida. Elige 1, 2, 3 o 4.")
+
+        while True:
+            palabras_clave = input("  → Palabras clave (ej: 'abre chrome, navegar'): ").strip()
+            if palabras_clave.lower() == "cancelar":
+                return None
+            if not palabras_clave:
+                print("SARA: Debes proporcionar al menos una palabra clave.")
+                continue
+            break
+
+        descripcion = input("  → Descripción breve: ").strip()
+        if not descripcion:
+            descripcion = accion
+
+        return {
+            "accion":         accion,
+            "tipo":           tipo,
+            "palabras_clave": palabras_clave,
+            "descripcion":    descripcion
+        }
+    except KeyboardInterrupt:
+        return None
+
+
+def solicitar_acciones_multiples():
+    try:
+        print("\nSARA: ¿Cuántas acciones quieres agregar? (máximo 10)")
         try:
             cantidad = int(input("  → Cantidad: ").strip())
         except ValueError:
@@ -213,102 +198,102 @@ def solicitar_acciones_multiples():
             return None
 
         if cantidad <= 0:
-            print("SARA: Debe ser al menos 1 acción.")
             return None
-
         if cantidad > 10:
-            print("SARA: Máximo 10 acciones por comando.")
             cantidad = 10
 
         acciones = []
-
         for i in range(1, cantidad + 1):
             print(f"\nSARA: Acción {i} de {cantidad}")
             print("─" * 35)
 
-            accion = input(f"  → Acción {i} (URL o ruta): ").strip()
-            if not accion or accion.lower() == "cancelar":
-                print("SARA: Cancelando registro.")
-                return None
+            while True:
+                accion = input(f"  → Acción {i} (URL o ruta): ").strip()
+                if accion.lower() == "cancelar":
+                    return None
+                if not accion:
+                    print("SARA: La acción no puede quedar vacía.")
+                    continue
+                break
 
-            print(f"  → Tipo de acción {i}:")
-            print("     [1] web    (URL o página web)")
-            print("     [2] app    (aplicación o archivo)")
-            print("     [3] sistema (comando de terminal)")
+            while True:
+                print(f"  → Tipo:")
+                print("     [1] web  [2] app  [3] sistema  [4] sistema_control")
+                tipo_opcion = input("  → Elige 1, 2, 3 o 4: ").strip()
+                tipos = {"1": "web", "2": "app", "3": "sistema", "4": "sistema_control"}
+                tipo = tipos.get(tipo_opcion)
+                if tipo:
+                    break
+                print("SARA: Opción inválida. Elige 1, 2, 3 o 4 .")
 
-            tipo_opcion = input("  → Elige 1, 2 o 3: ").strip()
-            tipos = {"1": "web", "2": "app", "3": "sistema"}
-            tipo  = tipos.get(tipo_opcion)
-
-            if not tipo:
-                print("SARA: Opción inválida. Usando 'app' por defecto.")
-                tipo = "app"
-
-            descripcion = input(f"  → Descripción breve (opcional): ").strip()
+            descripcion = input(f"  → Descripción: ").strip()
+            if not descripcion:
+                descripcion = accion
 
             acciones.append({
                 "orden":       i,
                 "accion":      accion,
                 "tipo":        tipo,
-                "descripcion": descripcion or accion
+                "descripcion": descripcion
             })
-
             print(f"  ✅ Acción {i} registrada.")
 
         return acciones if acciones else None
-
     except KeyboardInterrupt:
         return None
-def solicitar_respuesta_nueva():
-    """
-    Solicita al usuario la respuesta correcta para una pregunta.
-    Retorna: str con la respuesta, o None si cancela
-    """
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  FUNCIONES DE EMISIÓN GUI — privadas, nunca lanzan excepciones
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _emitir_seguro(tipo: str, **kwargs):
+    """Wrapper seguro para emitir eventos al servidor WebSocket."""
     try:
-        print("SARA: Escribe la respuesta (o 'cancelar' para omitir):")
-        respuesta = show_prompt("  → ")
-        if respuesta and respuesta.lower() == "cancelar" or not respuesta:
-            return None
-        return respuesta
-    except KeyboardInterrupt:
-        return None
+        import server
+        if server.servidor_activo():
+            server.emitir(tipo, **kwargs)
+    except Exception:
+        pass
 
 
-def solicitar_datos_comando():
+def _emitir_mensaje_usuario(texto: str):
+    _emitir_seguro("mensaje_usuario", texto=texto)
+
+
+def _emitir_respuesta(texto: str):
+    _emitir_seguro("respuesta_parcial", texto=texto)
+
+
+def _emitir_error(mensaje: str):
+    _emitir_seguro("error_sara", mensaje=mensaje)
+
+
+def _emitir_confianza(confianza: float):
+    _emitir_seguro("confianza", valor=round(confianza, 4), porcentaje=round(confianza * 100, 1))
+
+
+def _emitir_separador():
+    _emitir_seguro("separador")
+
+
+def _emitir_estado_voz(activo: bool):
+    _emitir_seguro("voz_estado", activo=activo, escuchando=False)
+
+
+def _emitir_evento_simple(tipo: str):
+    _emitir_seguro(tipo)
+
+
+# Función pública para emitir thinking desde sara.py
+def emitir_thinking(fase: str = "procesando"):
     """
-    Solicita al usuario los datos para registrar un nuevo comando.
-    Retorna: dict con los datos, o None si cancela
+    Emite el estado de 'pensando' al frontend.
+    Llamar antes de brain.procesar() y después al terminar.
+    Fases: 'procesando' | 'arbitro' | 'agentes' | 'voz' | 'aprendiendo' | None
     """
-    try:
-        print("SARA: Vamos a registrar el comando.")
-        print("      Escribe 'cancelar' en cualquier momento para omitir.\n")
+    if fase is None:
+        _emitir_seguro("thinking_stop")
+    else:
+        _emitir_seguro("thinking", fase=fase)
 
-        accion = show_prompt("  → Acción (URL, ruta o comando): ")
-        if accion and accion.lower() == "cancelar" or not accion:
-            return None
-
-        print("  → Tipo de comando:")
-        print("     [1] web    (abrir página)")
-        print("     [2] app    (abrir aplicación)")
-        print("     [3] sistema (comando de terminal)")
-        tipo_opcion = show_prompt("  → Elige 1, 2 o 3: ")
-
-        tipos = {"1": "web", "2": "app", "3": "sistema"}
-        tipo  = tipos.get(tipo_opcion)
-
-        if not tipo:
-            print("SARA: Opción inválida. Cancelando.")
-            return None
-
-        palabras_clave = show_prompt("  → Palabras clave (ej: 'abre chrome, navegar'): ")
-        descripcion    = show_prompt("  → Descripción breve (opcional): ")
-
-        return {
-            "accion":        accion,
-            "tipo":          tipo,
-            "palabras_clave": palabras_clave,
-            "descripcion":   descripcion
-        }
-
-    except KeyboardInterrupt:
-        return None

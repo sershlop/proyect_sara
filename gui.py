@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from io_manager import activar_modo_gui, mostrar_bienvenida, es_comando_salida, mostrar_despedida
+import io_manager
 from sara import procesar_comando, inicializar
 
 # Configuración de apariencia
@@ -16,7 +16,7 @@ class App(ctk.CTk):
             return
 
         # Activar modo GUI en io_manager
-        activar_modo_gui(None, self.actualizar_interfaz_respuesta, self.show_prompt_gui)
+        io_manager.activar_modo_gui(None, self.actualizar_interfaz_respuesta, self.show_prompt_gui)
 
         # Configuración de la ventana
         self.title("SARA")
@@ -38,8 +38,8 @@ class App(ctk.CTk):
     def button_event(self):
         texto_usuario = self.entry.get().strip()
         if texto_usuario:
-            if es_comando_salida(texto_usuario):
-                mostrar_despedida()
+            if io_manager.es_comando_salida(texto_usuario):
+                io_manager.mostrar_despedida()
                 self.quit()
                 return
             self.label.configure(text=f"Procesando: {texto_usuario}...")
