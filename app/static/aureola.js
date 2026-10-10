@@ -1,0 +1,317 @@
+/**
+ * aureola.js — Aureola de SARA (v2: múltiples formas)
+ *
+ * Formas disponibles (se cambian con SaraAureola.setForma(id), lo usa apariencia.js):
+ *   'gota'      (la original: círculo que, tras un retraso, se deforma en gota y gira al procesar)
+ *   'engranaje' (12 dientes; gira al procesar, estático en listo / éxito / error)
+ *   'hexagono'  (hexágono redondeado; gira al procesar)
+ *   'jarvis'    (anillos segmentados contra-rotatorios + núcleo; deriva lenta en reposo, rápida al procesar)
+ *   'radar'     (anillos de alcance + barrido con estela y ecos)
+ *
+ * TODAS las formas dibujan con currentColor, así que los colores por estado siguen siendo los de style.css:
+ *   azul (listo) · naranja (procesando) · verde (éxito) · rojo (error) · violeta (hablando) · violeta intenso (lector).
+ *
+ * API:  SaraAureola.setEstado('listo' | 'procesando' | 'exito' | 'error')
+ *       SaraAureola.setHablando(bool)  — voz normal de SARA (violeta suave, ondulación rápida y sutil)
+ *       SaraAureola.setLector(bool)    — lector de texto (violeta intenso, ondas LARGAS y lentas + ondas expansivas)
+ *       SaraAureola.setForma(id) / getForma() / formas() / previa(id)   — NUEVO (personalización)
+ * Prueba en consola:  SaraAureola.setEstado('procesando');  SaraAureola.setForma('jarvis')
+ */
+window.SaraAureola = (() => {
+    const RETRASO_MS = 2000;     // espera antes de deformarse (evita parpadeos en tareas rápidas)
+    const R = 70;                // radio base (viewBox 200x200)
+    const N = 72;                // puntos por contorno
+    const ESCALA_ERROR = 1.065;  // ≈ +1 mm de radio mientras dura el error
+    const reducir = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const NS = 'http://www.w3.org/2000/svg';
+
+    const FORMAS = [
+        { id: 'gota', nombre: 'Gota' },
+        { id: 'engranaje', nombre: 'Engranaje' },
+        { id: 'hexagono', nombre: 'Hexágono' },
+        { id: 'jarvis', nombre: 'Jarvis' },
+        { id: 'radar', nombre: 'Radar' },
+    ];
+    const ANCHO_BORDE = { gota: 3, engranaje: 2.6, hexagono: 3, jarvis: 1.2, radar: 1.6 };
+    const USA_ROT_GRUPO = { gota: true, engranaje: true, hexagono: true, jarvis: false, radar: false };
+
+    const cont = document.getElementById('aureola');
+    const grupo = document.getElementById('aureola-rot');
+    const borde = document.getElementById('aureola-borde');
+    const fondo = document.getElementById('aureola-fondo');
+    if (!cont || !grupo || !borde || !fondo) {
+        return { setEstado() {}, setHablando() {}, setLector() {}, setForma() {}, getForma: () => 'gota',
+                 formas: () => [], previa: () => '', geometria: () => null, contorno: () => '', reloj: () => 0 };
+    }
+    const ondas = ['aureola-onda-a', 'aureola-onda-b'].map((id) => document.getElementById(id)).filter(Boolean);
+
+    // Capa extra (anillos de Jarvis, barrido del radar): vive dentro del grupo para heredar escala / latido
+    const extra = document.createElementNS(NS, 'g');
+    extra.setAttribute('id', 'aureola-extra');
+    grupo.appendChild(extra);
+
+    let estado = '';
+    let timer = null;
+    let objetivo = 0;   // 0 = círculo, 1 = charco
+    let amp = 0;        // deformación actual (suavizada)
+    let vel = 0;        // velocidad de giro actual (°/s, suavizada)
+    let rot = 0, t = 0, pulso = 0;
+    let escala = 1, escalaObj = 1;
+    let hablando = false, habl = 0;   // habl = ondulación extra mientras SARA habla
+    let lector = false, lec = 0;      // lec = intensidad (0..1) del modo lector
+    let tL = 0, tO = 0;               // relojes propios del lector (solo avanzan mientras lee)
+    let giro = 0;                     // reloj de giro de las formas Jarvis / Radar
+    let forma = 'gota';
+    let ref = {};                     // referencias a los elementos de la capa extra
+    let previo = performance.now();
+
+    // ── Geometría ──────────────────────────────────────────────────────────────
+    function contorno(radio, k, fase, sentido, l = 0) {
+        const pts = [];
+        for (let i = 0; i < N; i++) {
+            const a = (i / N) * Math.PI * 2;
+            const def = k * (
+                0.075 * Math.sin(2 * a + sentido * t * 1.1 + fase) +
+                0.060 * Math.sin(3 * a - sentido * t * 1.5 + fase * 1.7) +
+                0.035 * Math.sin(5 * a + sentido * t * 2.1 - fase)
+            );
+            // Lector: 2 y 3 lóbulos grandes que se estiran y relajan despacio (agua sobre una bocina)
+            const largas = l * (
+                0.15 * Math.sin(2 * a + sentido * tL * 0.9 + fase) * (0.65 + 0.35 * Math.sin(tL * 1.4)) +
+                0.09 * Math.sin(3 * a - sentido * tL * 0.7 - fase) * (0.65 + 0.35 * Math.sin(tL * 1.1 + 1.3))
+            );
+            const r = radio * (1 + def + largas);
+            pts.push([r * Math.cos(a), r * Math.sin(a)]);
+        }
+        // curvas cuadráticas entre puntos medios → borde líquido y suave
+        const m = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        const m0 = m(pts[N - 1], pts[0]);
+        let d = `M${m0[0].toFixed(2)} ${m0[1].toFixed(2)}`;
+        for (let i = 0; i < N; i++) {
+            const p = pts[i], mm = m(p, pts[(i + 1) % N]);
+            d += `Q${p[0].toFixed(2)} ${p[1].toFixed(2)} ${mm[0].toFixed(2)} ${mm[1].toFixed(2)}`;
+        }
+        return d + 'Z';
+    }
+
+    function circ(r) {   // círculo exacto como trazo (dos arcos)
+        return `M${-r} 0A${r} ${r} 0 1 0 ${r} 0A${r} ${r} 0 1 0 ${-r} 0Z`;
+    }
+
+    function poligono(n, radio, fase) {   // polígono con esquinas redondeadas (quad por puntos medios)
+        const v = [];
+        for (let i = 0; i < n; i++) {
+            const a = fase + (i * Math.PI * 2) / n;
+            v.push([radio * Math.cos(a), radio * Math.sin(a)]);
+        }
+        const m = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        const m0 = m(v[n - 1], v[0]);
+        let d = `M${m0[0].toFixed(2)} ${m0[1].toFixed(2)}`;
+        for (let i = 0; i < n; i++) {
+            const p = v[i], mm = m(p, v[(i + 1) % n]);
+            d += `Q${p[0].toFixed(2)} ${p[1].toFixed(2)} ${mm[0].toFixed(2)} ${mm[1].toFixed(2)}`;
+        }
+        return d + 'Z';
+    }
+
+    function rutaEngranaje(rr, rt, dientes = 12, pasos = 288, hueco = 0) {
+        const s = (x) => x * x * (3 - 2 * x);
+        const perfil = (p) => {
+            if (p < 0.10) return rr + (rt - rr) * s(p / 0.10);
+            if (p < 0.40) return rt;
+            if (p < 0.50) return rt - (rt - rr) * s((p - 0.40) / 0.10);
+            return rr;
+        };
+        let d = '';
+        for (let i = 0; i < pasos; i++) {
+            const a = (i / pasos) * Math.PI * 2;
+            const r = perfil(((i / pasos) * dientes) % 1);
+            d += `${i ? 'L' : 'M'}${(r * Math.cos(a)).toFixed(2)} ${(r * Math.sin(a)).toFixed(2)}`;
+        }
+        return d + 'Z' + (hueco ? circ(hueco) : '');
+    }
+
+    function sector(r, a0, a1) {   // cuña de círculo (grados; el ángulo crece en sentido horario)
+        const p = (a) => [(r * Math.cos((a * Math.PI) / 180)).toFixed(2), (r * Math.sin((a * Math.PI) / 180)).toFixed(2)];
+        const [x0, y0] = p(a0), [x1, y1] = p(a1);
+        return `M0 0L${x0} ${y0}A${r} ${r} 0 0 1 ${x1} ${y1}Z`;
+    }
+
+    // Marcado de la capa extra (compartido por la aureola real y por las miniaturas del menú)
+    function marcado(f, estatico) {
+        const C = 'currentColor';
+        if (f === 'jarvis') {
+            return `<circle data-k="ticks" r="80" fill="none" stroke="${C}" stroke-width="5" stroke-opacity=".5" stroke-dasharray="1.4 5.58"/>` +
+                `<circle data-k="seg" r="60" fill="none" stroke="${C}" stroke-width="4" stroke-opacity=".9" stroke-dasharray="37.1 10"/>` +
+                `<circle data-k="arcs" r="50" fill="none" stroke="${C}" stroke-width="2.5" stroke-opacity=".8" stroke-dasharray="70 34.7"/>` +
+                `<circle r="38" fill="none" stroke="${C}" stroke-width="1" stroke-opacity=".45"/>` +
+                `<circle data-k="nucleo" r="9" fill="${C}" fill-opacity=".9"/>`;
+        }
+        if (f === 'radar') {
+            let cunas = '';
+            for (let i = 0; i < 6; i++) cunas += `<path d="${sector(70, -(i + 1) * 9, -i * 9)}" fill="${C}" fill-opacity="${(0.26 * (1 - i / 6)).toFixed(3)}"/>`;
+            const ecos = [[42, 25], [58, 150], [26, 255]].map(([r, a], i) =>
+                `<circle data-k="eco${i}" cx="${(r * Math.cos((a * Math.PI) / 180)).toFixed(1)}" cy="${(r * Math.sin((a * Math.PI) / 180)).toFixed(1)}" r="3.2" fill="${C}" fill-opacity="${estatico ? 0.8 : 0.1}"/>`).join('');
+            return `<circle r="52" fill="none" stroke="${C}" stroke-width="1" stroke-opacity=".35"/>` +
+                `<circle r="34" fill="none" stroke="${C}" stroke-width="1" stroke-opacity=".3"/>` +
+                `<circle r="16" fill="none" stroke="${C}" stroke-width="1" stroke-opacity=".3"/>` +
+                `<path d="M-70 0H70M0-70V70" stroke="${C}" stroke-width="1" stroke-opacity=".25" fill="none"/>` +
+                `<g data-k="barrido"${estatico ? ' transform="rotate(40)"' : ''}>${cunas}<line x1="0" y1="0" x2="70" y2="0" stroke="${C}" stroke-width="2" stroke-opacity=".95"/></g>` + ecos;
+        }
+        return '';
+    }
+
+    // Dibujo estático de cada forma (miniaturas del menú). Devuelve el interior de un <svg viewBox="-100 -100 200 200">.
+    function previa(f) {
+        const C = 'currentColor';
+        if (f === 'engranaje') {
+            return `<path d="${rutaEngranaje(0.80 * R, R, 12, 288, 0.30 * R)}" fill="${C}" fill-opacity=".14" fill-rule="evenodd" stroke="${C}" stroke-width="2.6" stroke-linejoin="round"/>` +
+                   `<path d="${circ(0.62 * R)}${circ(0.54 * R)}" fill="${C}" fill-opacity=".30" fill-rule="evenodd"/>`;
+        }
+        if (f === 'hexagono') {
+            return `<path d="${poligono(6, R * 1.05, -Math.PI / 2)}" fill="${C}" fill-opacity=".10" stroke="${C}" stroke-width="3" stroke-linejoin="round"/>` +
+                   `<path d="${poligono(6, R * 0.62 * 1.05, -Math.PI / 2 + Math.PI / 6)}" fill="${C}" fill-opacity=".22"/>`;
+        }
+        if (f === 'jarvis') {
+            return `<path d="${circ(R)}" fill="${C}" fill-opacity=".03" stroke="${C}" stroke-width="1.2"/><path d="${circ(26)}" fill="${C}" fill-opacity=".14"/>` + marcado('jarvis', true);
+        }
+        if (f === 'radar') {
+            return `<path d="${circ(R)}" fill="${C}" fill-opacity=".05" stroke="${C}" stroke-width="1.6"/><path d="${circ(3.5)}" fill="${C}"/>` + marcado('radar', true);
+        }
+        return `<path d="${contorno(R, 0.55, 0, 1)}" fill="${C}" fill-opacity=".14" stroke="${C}" stroke-width="3" stroke-linejoin="round"/>` +
+               `<path d="${contorno(R * 0.80, 0.69, 2.1, -1)}" fill="${C}" fill-opacity=".22"/>`;
+    }
+
+    // Monta una forma: ajusta trazos, contornos fijos y la capa extra
+    function montar(f) {
+        extra.textContent = '';
+        extra.innerHTML = marcado(f, false);
+        ref = {};
+        extra.querySelectorAll('[data-k]').forEach((e) => { ref[e.getAttribute('data-k')] = e; });
+        borde.setAttribute('stroke-width', ANCHO_BORDE[f]);
+        if (f === 'engranaje') { borde.setAttribute('fill-rule', 'evenodd'); fondo.setAttribute('fill-rule', 'evenodd'); }
+        else { borde.removeAttribute('fill-rule'); fondo.removeAttribute('fill-rule'); }
+        // contornos que no cambian en cada cuadro
+        if (f === 'engranaje') {
+            borde.setAttribute('d', rutaEngranaje(0.80 * R, R, 12, 288, 0.30 * R));
+            fondo.setAttribute('d', circ(0.62 * R) + circ(0.54 * R));
+        } else if (f === 'hexagono') {
+            borde.setAttribute('d', poligono(6, R * 1.05, -Math.PI / 2));
+            fondo.setAttribute('d', poligono(6, R * 0.62 * 1.05, -Math.PI / 2 + Math.PI / 6));
+        } else if (f === 'jarvis') {
+            borde.setAttribute('d', circ(R));
+            fondo.setAttribute('d', circ(26));
+        } else if (f === 'radar') {
+            borde.setAttribute('d', circ(R));
+            fondo.setAttribute('d', circ(3.5));
+            fondo.setAttribute('fill-opacity', '0.9');
+        }
+    }
+
+    function cuadro(ahora) {
+        const dt = Math.min((ahora - previo) / 1000, 0.1);
+        previo = ahora;
+
+        amp += (objetivo - amp) * (1 - Math.exp(-dt / 0.55));         // morph suave
+        vel += (objetivo * 140 - vel) * (1 - Math.exp(-dt / 0.8));    // acelera / frena
+        pulso *= Math.exp(-dt / 0.35);
+        escala += (escalaObj - escala) * (1 - Math.exp(-dt / 0.22));   // crece / vuelve suave
+        // Voz: la aureola "late" al ritmo del habla (ondas irregulares, sin girar)
+        // Voz: modulación equilibrada y profesional
+        const hObj = hablando && !reducir
+            ? 0.35 + 0.15 * Math.sin(ahora / 1000 * 6.5) + 0.08 * Math.sin(ahora / 1000 * 10.2) : 0;
+        habl += (hObj - habl) * (1 - Math.exp(-dt / (hablando ? 0.09 : 0.35)));
+        // Lector: entra/sale con suavidad; el reloj de las ondas largas solo corre mientras lee (acelerado para seguir el ritmo de la voz)
+        lec += ((lector && !reducir ? 1 : 0) - lec) * (1 - Math.exp(-dt / 0.7));
+        tL += dt * lec * 1.8;
+        tO += dt * lec * 1.8;
+        const A = amp + habl;
+        t += dt * (0.7 + A * 1.6);
+        rot += vel * dt;
+        // Jarvis / Radar: deriva lenta en reposo; con la tarea en curso (vel sube tras el retraso) giran rápido
+        giro += reducir ? 0 : dt * (1.5 + 10 * Math.min(vel / 140, 1));
+
+        const respiro = 0.014 * Math.sin(t * 1.3);                    // respiración en reposo
+
+        if (forma === 'gota') {
+            borde.setAttribute('d', contorno(R * (1 + respiro), A, 0, 1, lec));
+            fondo.setAttribute('d', contorno(R * 0.80 * (1 + respiro), A * 1.25, 2.1, -1, lec * 1.25));
+            borde.setAttribute('fill-opacity', (0.06 + A * 0.14 + lec * 0.10).toFixed(3));
+            fondo.setAttribute('fill-opacity', (0.05 + A * 0.20 + lec * 0.14).toFixed(3));
+        } else if (forma === 'engranaje') {
+            borde.setAttribute('fill-opacity', (0.10 + habl * 0.12 + lec * 0.10).toFixed(3));
+            fondo.setAttribute('fill-opacity', (0.16 + habl * 0.22 + lec * 0.14).toFixed(3));
+        } else if (forma === 'hexagono') {
+            borde.setAttribute('fill-opacity', (0.07 + habl * 0.12 + lec * 0.10).toFixed(3));
+            fondo.setAttribute('fill-opacity', (0.12 + habl * 0.22 + lec * 0.14).toFixed(3));
+        } else if (forma === 'jarvis') {
+            borde.setAttribute('fill-opacity', (0.03 + habl * 0.05 + lec * 0.05).toFixed(3));
+            fondo.setAttribute('fill-opacity', (0.10 + habl * 0.28 + lec * 0.16).toFixed(3));
+            if (ref.ticks) ref.ticks.setAttribute('transform', `rotate(${(giro * -2).toFixed(1)})`);
+            if (ref.seg) ref.seg.setAttribute('transform', `rotate(${(giro * 6).toFixed(1)})`);
+            if (ref.arcs) ref.arcs.setAttribute('transform', `rotate(${(giro * -10).toFixed(1)})`);
+            if (ref.nucleo) ref.nucleo.setAttribute('r', (9 * (1 + 0.12 * Math.sin(t * 2.4) + habl * 0.35 + lec * 0.25 * Math.sin(tL * 1.6))).toFixed(2));
+        } else if (forma === 'radar') {
+            borde.setAttribute('fill-opacity', (0.05 + habl * 0.08 + lec * 0.08).toFixed(3));
+            const ang = giro * 30;
+            if (ref.barrido) ref.barrido.setAttribute('transform', `rotate(${(ang % 360).toFixed(1)})`);
+            [25, 150, 255].forEach((a, i) => {
+                const e = ref['eco' + i];
+                if (!e) return;
+                const delta = (((ang - a) % 360) + 360) % 360;             // cuánto hace que el barrido pasó por el eco
+                e.setAttribute('fill-opacity', (delta < 150 ? Math.max(0.1, 1 - delta / 150) : 0.1).toFixed(3));
+            });
+        }
+
+        // cono de bocina: latido lento de todo el círculo (+4.5 %)
+        const latido = 0.045 * lec * Math.sin(tL * 1.6);
+        const vozEsc = forma === 'gota' ? 0 : 0.12 * habl;            // en las demás formas la voz hace "latir" la escala
+        grupo.setAttribute('transform',
+            `rotate(${(USA_ROT_GRUPO[forma] ? rot : 0).toFixed(2)}) scale(${(escala + 0.07 * pulso + latido + vozEsc).toFixed(4)})`);
+        // ondas expansivas: dos anillos que nacen en el borde, crecen y se desvanecen (desfasados)
+        ondas.forEach((el, i) => {
+            const p = ((tO / 3.2) + i * 0.5) % 1;
+            el.setAttribute('r', (R * (1.02 + 0.85 * p)).toFixed(1));
+            el.setAttribute('stroke-opacity', (lec * 0.55 * Math.pow(1 - p, 1.6)).toFixed(3));
+        });
+
+        requestAnimationFrame(cuadro);
+    }
+
+    function setEstado(nuevo) {
+        if (nuevo === estado) return;          // idempotente: no reinicia el retraso
+        estado = nuevo;
+        clearTimeout(timer);
+        objetivo = 0;
+        escalaObj = nuevo === 'error' ? ESCALA_ERROR : 1;
+        if (nuevo === 'procesando' && !reducir) {
+            timer = setTimeout(() => { if (estado === 'procesando') objetivo = 1; }, RETRASO_MS);
+        } else if (nuevo === 'exito') {
+            pulso = 1;
+        }
+    }
+
+    function setForma(id) {
+        const f = FORMAS.some((x) => x.id === id) ? id : 'gota';
+        if (f === forma && cont.dataset.forma === f) return;
+        forma = f;
+        cont.dataset.forma = f;               // data-* sobrevive a los className que pone app.js
+        montar(f);
+    }
+
+    setEstado((cont.className.match(/aureola-(\w+)/) || [, 'listo'])[1]);
+    requestAnimationFrame(cuadro);
+    function setHablando(v) { hablando = !!v; }
+    function setLector(v) { lector = !!v; }
+
+    // ── API para el ester egg (aureola_show.js) ──
+    // (el show siempre dibuja gotas con contorno(); no depende de la forma elegida)
+    function geometria() {
+        const r = cont.getBoundingClientRect();
+        return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, k: r.width / 200, R };   // k = px por unidad del viewBox
+    }
+    function reloj() { return t; }
+
+    return { setEstado, setHablando, setLector, setForma, getForma: () => forma, formas: () => FORMAS.slice(),
+             previa, geometria, contorno, reloj };
+})();

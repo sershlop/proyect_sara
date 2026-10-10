@@ -1,0 +1,4 @@
+# Capa 2 del motor (embeddings). El wheel de torch de PyPI para Windows ya es solo-CPU (~115 MB).
+numpy==2.4.1
+torch==2.11.0
+sentence-transformers==5.3.0

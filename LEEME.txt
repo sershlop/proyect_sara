@@ -1,0 +1,33 @@
+SARA - Asistente de escritorio para Windows 10/11 (64 bits)
+============================================================
+
+INSTALAR
+  1. Extrae TODO el .zip en una carpeta sencilla, por ejemplo C:\SARA
+     (no la abras desde dentro del .zip, ni en OneDrive/Escritorio sincronizado).
+  2. Doble clic en SARA.bat.
+  3. La primera vez SARA revisa tu equipo, te propone que instalar (segun tu RAM)
+     y descarga lo necesario. Hace falta internet SOLO esa primera vez.
+  4. Las siguientes veces abre en segundos.
+
+QUE SE INSTALA (todo dentro de esta carpeta, nada se mezcla con tu Windows)
+  - Ligero   : motor + ventana + voz.                       (~0.2 GB)
+  - Estandar : + comprension semantica y escucha por mic.   (~1.3 GB)
+  - Completo : + IA local Llama 3.2 3B con Ollama.          (~4.8 GB, ~3 GB de RAM al usarla)
+  Puedes cambiarlo cuando quieras con:  SARA.bat --componentes
+
+CLAVES (OPCIONALES)
+  SARA funciona sin ninguna. Si tienes claves gratuitas de Groq o Gemini, SARA responde
+  mejor la charla. Se guardan en app\.env, solo en tu equipo. No compartas ese archivo.
+
+SI ALGO FALLA
+  - Detalles:    runtime\instalacion.log
+  - Diagnostico: SARA.bat --diagnostico
+  - Reinstalar:  SARA.bat --reparar
+  - Si la ventana sale en blanco o falla:  SARA.bat --navegador   (abre SARA en tu navegador)
+
+PRIVACIDAD Y SEGURIDAD
+  - SARA solo escucha en tu propio equipo (127.0.0.1). No abre puertos a internet.
+  - El control remoto por WhatsApp/Telegram nace APAGADO y hay que activarlo a proposito.
+  - SARA puede abrir y cerrar programas y mover o borrar archivos si se lo pides
+    (siempre pide confirmacion en lo destructivo). Usala con criterio.
+  - La IA local (Llama 3.2) se descarga de internet la primera vez y se usa bajo su propia licencia.

@@ -1,0 +1,14 @@
+{
+ "version": 1,
+ "puntos": {
+  "opera_gx": 113.75,
+  "chrome": 47.75
+ },
+ "exe": {
+  "opera_gx": "C:\\Users\\sersh\\AppData\\Local\\Programs\\Opera GX\\opera.exe",
+  "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+ },
+ "muestras": 240,
+ "desde": "2026-09-30",
+ "ultimo_decay": "2026-09-30"
+}
