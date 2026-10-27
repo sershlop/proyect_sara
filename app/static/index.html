@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>SARA v2.0 — Sistema Autónomo de Razonamiento Artificial</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+
+        <!-- AUREOLA CENTRAL (estado) -->
+        <div class="aureola-container">
+            <div id="aureola" class="aureola aureola-procesando">
+                <svg viewBox="-100 -100 200 200" aria-hidden="true">
+                    <g id="aureola-rot">
+                        <path id="aureola-fondo" fill="currentColor" stroke="none"/>
+                        <path id="aureola-borde" fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+                    </g>
+                    <!-- ondas expansivas del lector (solo visibles en modo lector) -->
+                    <circle id="aureola-onda-a" r="70" fill="none" stroke="currentColor" stroke-width="2" stroke-opacity="0"/>
+                    <circle id="aureola-onda-b" r="70" fill="none" stroke="currentColor" stroke-width="2" stroke-opacity="0"/>
+                </svg>
+            </div>
+            <div class="aureola-label" id="etapa-label">Cargando núcleo…</div>
+        </div>
+
+        <!-- ESTER EGG: lienzo del show de la aureola (se activa tras 60 s de inactividad) -->
+        <canvas id="show-canvas" class="show-canvas" aria-hidden="true"></canvas>
+
+        <!-- LECTOR DE TEXTO A VOZ: pestaña (línea) arriba a la derecha + bandeja -->
+        <button id="lector-tab" class="lector-tab" type="button" title="Lector de texto a voz"
+                aria-label="Abrir lector de texto a voz" aria-expanded="false"></button>
+        <div id="lector-panel" class="lector-panel hidden">
+            <div class="lector-header">
+                <span>🔊 Lector de texto</span>
+                <span id="lector-progreso" class="lector-progreso"></span>
+            </div>
+            <textarea id="lector-texto" class="lector-texto" rows="5"
+                      placeholder="Pega o escribe el texto que SARA debe leer completo…  (Enter = leer · Shift+Enter = nueva línea)"></textarea>
+            <div id="lector-aviso" class="lector-aviso hidden"></div>
+            <div class="lector-acciones">
+                <button id="lector-limpiar" class="lector-btn-sec" type="button">Limpiar</button>
+                <button id="lector-reanudar" class="lector-btn-sec hidden" type="button">↻ Reanudar</button>
+                <button id="lector-btn" class="lector-btn" type="button">▶ Leer</button>
+            </div>
+        </div>
+
+        <!-- PANEL CHAT -->
+        <div id="chat-panel" class="chat-panel">
+            <div class="chat-header">
+                <h2>💬 SARA</h2>
+                <button id="toggle-chat" class="toggle-btn" title="Minimizar">−</button>
+            </div>
+
+            <div id="mensajes" class="mensajes-container">
+                <div class="mensaje sistema">
+                    <span class="timestamp">Ahora</span>
+                    <p>Hola. Soy SARA. ¿Qué necesitas?</p>
+                </div>
+            </div>
+
+            <div class="acciones-rapidas" id="acciones-rapidas">
+                <button class="chip" data-cmd="/salud">🩺 Salud</button>
+                <button class="chip" data-cmd="/habitos">📈 Hábitos</button>
+                <button class="chip" data-cmd="/categorias">🏷️ Categorías</button>
+                <button class="chip" data-cmd="/stats">🧠 Aprendizaje</button>
+                <button class="chip" data-cmd="/confirmar">👍 Confirmar</button>
+                <button class="chip" data-cmd="/validar">📌 Validar</button>
+                <button class="chip" data-cmd="/reindexar">🗂️ Reindexar</button>
+                <button class="chip" data-cmd="/reindexar_apps">🧩 Reindexar apps</button>
+                <button class="chip" data-cmd="/ayuda">❓ Ayuda</button>
+            </div>
+
+            <!-- VOZ DE ENTRADA (STT): medidor + slider del noise gate; solo visible con el modo voz activo -->
+            <div id="stt-panel" class="stt-panel hidden">
+                <div id="stt-estado" class="stt-estado">…</div>
+                <div class="stt-medidor"><div id="stt-nivel" class="stt-nivel"></div></div>
+                <div class="stt-slider-fila">
+                    <span>Sensible</span>
+                    <input id="stt-slider" class="stt-slider" type="range" min="0" max="100" step="1" value="35"
+                           title="Izquierda: capta sonidos suaves · Derecha: hay que hablar más fuerte">
+                    <span>Exigente</span>
+                </div>
+            </div>
+
+            <div class="chat-input-container">
+                <button id="btn-voz" class="btn-voz" type="button" title="Activar modo voz" aria-pressed="false">🎙️</button>
+                <input id="input-usuario" type="text" placeholder="Dime qué hacer…  (/ayuda para comandos)"
+                       class="input-usuario" autocomplete="off">
+                <button id="btn-enviar" class="btn-enviar" title="Enviar">⟶</button>
+            </div>
+        </div>
+
+        <!-- MODAL DE CONFIRMACIÓN -->
+        <div id="modal-confirmacion" class="modal-confirmacion hidden">
+            <div class="modal-contenido">
+                <h3 id="pregunta-confirmacion">Confirmar acción</h3>
+                <div id="opciones-container" class="opciones-container"></div>
+                <div id="botones-container" class="botones-container">
+                    <button id="btn-si" class="btn-confirmacion btn-si">✓ Sí</button>
+                    <button id="btn-no" class="btn-confirmacion btn-no">✗ No</button>
+                </div>
+                <div class="timeout-bar"><div id="timeout-fill" class="timeout-fill"></div></div>
+            </div>
+        </div>
+
+        <!-- PANEL DE SUGERENCIAS (oculto mientras no haya ninguna) -->
+        <div id="sugerencias-panel" class="sugerencias-panel vacio">
+            <div class="sugerencias-header">💡 Sugerencias</div>
+            <div id="sugerencias-container" class="sugerencias-container"></div>
+        </div>
+
+        <!-- BARRA DE ESTADO -->
+        <div class="barra-estado">
+            <div class="estado-grupo"><span class="etiqueta">CPU:</span><span id="cpu-valor" class="valor">0%</span></div>
+            <div class="estado-grupo"><span class="etiqueta">RAM:</span><span id="ram-valor" class="valor">0%</span></div>
+            <div class="estado-grupo"><span class="etiqueta">Disco:</span><span id="disco-valor" class="valor">0%</span></div>
+            <div class="estado-grupo"><span class="etiqueta">Red:</span><span id="red-valor" class="valor">✓</span></div>
+            <div class="estado-grupo"><span class="etiqueta">Ollama:</span><span id="ollama-valor" class="valor">✗</span></div>
+            <div class="estado-grupo"><span class="etiqueta">Núcleo:</span><span id="core-valor" class="valor">…</span></div>
+            <div style="flex: 1;"></div>
+            <div class="estado-grupo"><span id="hora-valor">00:00</span></div>
+        </div>
+    </div>
+
+    <script src="/static/aureola.js"></script>
+    <script src="/static/aureola_show.js"></script>
+    <script src="/static/apariencia.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

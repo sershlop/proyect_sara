@@ -1,0 +1,4 @@
+numpy==2.4.1
+av==17.0.1
+sounddevice==0.5.5
+faster-whisper==1.2.1

@@ -1,0 +1,21 @@
+# Nucleo + ventana. Versiones tomadas del pip freeze del equipo de desarrollo.
+# proxy_tools (dependencia de pywebview) solo existe en PyPI como codigo fuente; el Python embebido no puede compilar,
+# asi que su wheel ya construido viaja en bootstrap/wheels/ y pip lo toma de ahi (--find-links).
+fastapi==0.136.3
+uvicorn==0.49.0
+websockets==16.0
+requests==2.32.5
+pywebview==6.2.1
+proxy_tools==0.1.0
+pythonnet==3.1.0
+clr_loader==0.3.1
+psutil==7.2.2
+python-dotenv==1.2.2
+pywin32==311
+send2trash==2.1.0
+dateparser==1.4.3
+# /foto (antirrobo.py): webcam. Wheel abi3 para Windows; pide numpy>=2 (ya fijado a 2.4.1 en semantica/voz_entrada).
+opencv-python-headless==5.0.0.93
+
+winsdk==1.0.0b10
+cryptography==50.0.2

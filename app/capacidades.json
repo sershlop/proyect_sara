@@ -1,0 +1,1412 @@
+{
+ "version": 1,
+ "nota": "Fuente única de capacidades: la leen celular.py (laptop) y SARA móvil (Kotlin). Una regla coincide si CADA grupo de 'todas' tiene al menos una palabra presente y ninguna de 'no' lo está. Gana la mayor 'prioridad'; a igual prioridad, la primera de la lista. nodo: celular = siempre va al celular; ambos = solo va al celular si el usuario lo nombra (celular/telefono/movil/cel).",
+ "capacidades": [
+  {
+   "id": "linterna_on",
+   "nodo": "celular",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "linterna",
+       "flash",
+       "lampara",
+       "antorcha"
+      ]
+     ],
+     "no": [
+      "apaga",
+      "apagar",
+      "desactiva",
+      "desactivar",
+      "quita",
+      "quitar",
+      "apagala",
+      "apagalo"
+     ]
+    },
+    {
+     "todas": [
+      [
+       "luz"
+      ],
+      [
+       "celular",
+       "telefono",
+       "movil",
+       "cel"
+      ],
+      [
+       "enciende",
+       "prende",
+       "activa",
+       "pon",
+       "encender",
+       "prender",
+       "activar",
+       "enciendela",
+       "prendela"
+      ]
+     ],
+     "no": [
+      "apaga",
+      "apagar",
+      "desactiva",
+      "desactivar",
+      "quita",
+      "quitar",
+      "apagala",
+      "apagalo"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "enciende la linterna",
+    "prende la lampara del celular"
+   ]
+  },
+  {
+   "id": "linterna_off",
+   "nodo": "celular",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "linterna",
+       "flash",
+       "lampara",
+       "antorcha"
+      ],
+      [
+       "apaga",
+       "apagar",
+       "desactiva",
+       "desactivar",
+       "quita",
+       "quitar",
+       "apagala",
+       "apagalo"
+      ]
+     ]
+    },
+    {
+     "todas": [
+      [
+       "luz"
+      ],
+      [
+       "celular",
+       "telefono",
+       "movil",
+       "cel"
+      ],
+      [
+       "apaga",
+       "apagar",
+       "desactiva",
+       "desactivar",
+       "quita",
+       "quitar",
+       "apagala",
+       "apagalo"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "apaga la linterna"
+   ]
+  },
+  {
+   "id": "buscar_celular",
+   "nodo": "celular",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "celular",
+       "telefono",
+       "movil",
+       "cel"
+      ],
+      [
+       "encuentra",
+       "encuentrame",
+       "busca",
+       "buscame",
+       "localiza",
+       "localizame",
+       "donde",
+       "suena",
+       "sonar",
+       "timbra",
+       "perdi",
+       "perdido",
+       "ubica"
+      ]
+     ],
+     "no": [
+      "notificaciones",
+      "notificacion",
+      "bateria"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "encuentra mi celular",
+    "donde esta mi celular",
+    "haz sonar mi telefono"
+   ]
+  },
+  {
+   "id": "volumen_subir",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "volumen",
+       "audio",
+       "sonido"
+      ],
+      [
+       "sube",
+       "subir",
+       "subele",
+       "aumenta",
+       "aumentar",
+       "mas",
+       "fuerte"
+      ]
+     ],
+     "no": [
+      "baja",
+      "bajar",
+      "bajo",
+      "silencio"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "sube el volumen"
+   ]
+  },
+  {
+   "id": "volumen_bajar",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "volumen",
+       "audio",
+       "sonido"
+      ],
+      [
+       "baja",
+       "bajar",
+       "bajale",
+       "disminuye",
+       "reduce",
+       "menos",
+       "bajito"
+      ]
+     ],
+     "no": [
+      "sube",
+      "subir",
+      "silencio"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "baja el volumen"
+   ]
+  },
+  {
+   "id": "volumen_fijar",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "volumen"
+      ],
+      [
+       "pon",
+       "ponlo",
+       "ajusta",
+       "fija",
+       "deja",
+       "al",
+       "a"
+      ]
+     ],
+     "no": [
+      "cuanto",
+      "cuanta"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "pon el volumen al 40"
+   ]
+  },
+  {
+   "id": "silencio",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "silencio",
+       "silencia",
+       "silenciar",
+       "mutea",
+       "mutear",
+       "callate",
+       "vibracion",
+       "vibrar"
+      ]
+     ],
+     "no": [
+      "quita",
+      "quitar",
+      "desactiva",
+      "desactivar",
+      "apaga",
+      "apagar"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "pon el celular en silencio"
+   ]
+  },
+  {
+   "id": "silencio_off",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "silencio"
+      ],
+      [
+       "quita",
+       "quitar",
+       "desactiva",
+       "desactivar",
+       "apaga",
+       "apagar"
+      ]
+     ]
+    },
+    {
+     "todas": [
+      [
+       "sonido"
+      ],
+      [
+       "activa",
+       "activar",
+       "pon",
+       "normal",
+       "restaura",
+       "restaurar",
+       "vuelve"
+      ]
+     ],
+     "no": [
+      "silencio"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "quita el silencio"
+   ]
+  },
+  {
+   "id": "no_molestar_on",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "molestar",
+       "molestes",
+       "dnd",
+       "concentracion"
+      ]
+     ],
+     "no": [
+      "quita",
+      "quitar",
+      "desactiva",
+      "desactivar",
+      "apaga",
+      "apagar"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "activa no molestar"
+   ]
+  },
+  {
+   "id": "no_molestar_off",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "molestar",
+       "molestes",
+       "dnd"
+      ],
+      [
+       "quita",
+       "quitar",
+       "desactiva",
+       "desactivar",
+       "apaga",
+       "apagar"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "desactiva no molestar"
+   ]
+  },
+  {
+   "id": "brillo",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "brillo"
+      ],
+      [
+       "sube",
+       "baja",
+       "pon",
+       "ajusta",
+       "al",
+       "maximo",
+       "minimo",
+       "mas",
+       "menos",
+       "subir",
+       "bajar"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "sube el brillo",
+    "pon el brillo al 30"
+   ]
+  },
+  {
+   "id": "alarma",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "alarma",
+       "despiertame",
+       "despierta"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "pon una alarma a las 7"
+   ]
+  },
+  {
+   "id": "temporizador",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "temporizador",
+       "timer"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "temporizador de 10 minutos"
+   ]
+  },
+  {
+   "id": "bateria",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "bateria",
+       "carga"
+      ],
+      [
+       "cuanta",
+       "cuanto",
+       "como",
+       "nivel",
+       "estado",
+       "porcentaje",
+       "tengo",
+       "tiene",
+       "queda",
+       "esta"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "cuanta bateria tengo"
+   ]
+  },
+  {
+   "id": "red",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "wifi",
+       "internet",
+       "red",
+       "datos"
+      ],
+      [
+       "estoy",
+       "conectado",
+       "conectada",
+       "tengo",
+       "estado",
+       "hay",
+       "esta"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "estoy conectado a wifi"
+   ]
+  },
+  {
+   "id": "ubicacion",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "ubicacion",
+       "gps",
+       "coordenadas"
+      ],
+      [
+       "mi",
+       "dime",
+       "dame",
+       "cual",
+       "cuales",
+       "manda",
+       "comparte",
+       "actual"
+      ]
+     ]
+    },
+    {
+     "todas": [
+      [
+       "donde"
+      ],
+      [
+       "estoy"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "donde estoy"
+   ]
+  },
+  {
+   "id": "notificaciones_leer",
+   "nodo": "celular",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "notificaciones",
+       "notificacion"
+      ],
+      [
+       "lee",
+       "leer",
+       "leeme",
+       "dime",
+       "muestra",
+       "muestrame",
+       "cuales",
+       "tengo",
+       "hay",
+       "resumen",
+       "resume",
+       "revisa",
+       "ver",
+       "mis"
+      ]
+     ],
+     "no": [
+      "borra",
+      "borrar",
+      "limpia",
+      "limpiar",
+      "descarta",
+      "elimina",
+      "quita"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "lee las notificaciones de mi celular"
+   ]
+  },
+  {
+   "id": "notificaciones_limpiar",
+   "nodo": "celular",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "notificaciones",
+       "notificacion"
+      ],
+      [
+       "borra",
+       "borrar",
+       "limpia",
+       "limpiar",
+       "descarta",
+       "descartar",
+       "elimina",
+       "quita",
+       "quitar"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "limpia las notificaciones"
+   ]
+  },
+  {
+   "id": "musica_pausa",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "musica",
+       "cancion",
+       "reproduccion",
+       "video",
+       "pista"
+      ],
+      [
+       "pausa",
+       "pausar",
+       "deten",
+       "detener",
+       "para",
+       "parar"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "pausa la musica"
+   ]
+  },
+  {
+   "id": "musica_siguiente",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "musica",
+       "cancion",
+       "pista"
+      ],
+      [
+       "siguiente",
+       "proxima",
+       "salta",
+       "saltar",
+       "cambia",
+       "adelanta"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "siguiente cancion"
+   ]
+  },
+  {
+   "id": "musica_anterior",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "musica",
+       "cancion",
+       "pista"
+      ],
+      [
+       "anterior",
+       "previa",
+       "regresa",
+       "atras"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "cancion anterior"
+   ]
+  },
+  {
+   "id": "musica_play",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 2,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "musica",
+       "cancion",
+       "reproduccion"
+      ],
+      [
+       "reanuda",
+       "reanudar",
+       "continua",
+       "continuar",
+       "sigue",
+       "play"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "reanuda la musica"
+   ]
+  },
+  {
+   "id": "llamar",
+   "nodo": "celular",
+   "riesgo": "alto",
+   "confirmar": true,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "llama",
+       "llamar",
+       "marca",
+       "marcar",
+       "telefonea",
+       "llamale"
+      ]
+     ],
+     "no": [
+      "como",
+      "quien",
+      "que",
+      "cual",
+      "se",
+      "me",
+      "cuando",
+      "donde"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "llama a mama"
+   ]
+  },
+  {
+   "id": "sms",
+   "nodo": "celular",
+   "riesgo": "alto",
+   "confirmar": true,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "sms"
+      ],
+      [
+       "manda",
+       "envia",
+       "enviale",
+       "mandale",
+       "escribe",
+       "escribele",
+       "mensaje",
+       "texto"
+      ]
+     ]
+    },
+    {
+     "todas": [
+      [
+       "mensaje"
+      ],
+      [
+       "texto"
+      ],
+      [
+       "manda",
+       "envia",
+       "enviale",
+       "mandale",
+       "escribele"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "manda un sms a mama que ya llegue"
+   ]
+  },
+  {
+   "id": "youtube",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 4,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "youtube"
+      ],
+      [
+       "pon",
+       "ponme",
+       "ponle",
+       "ponlo",
+       "poner",
+       "pongas",
+       "ponga",
+       "reproduce",
+       "reproduceme",
+       "reproducir",
+       "reproduzcas",
+       "escucha",
+       "escuchame",
+       "escuchar",
+       "play",
+       "coloca",
+       "colocame",
+       "abre",
+       "abrir",
+       "abreme",
+       "muestrame",
+       "muestra",
+       "ver",
+       "busca",
+       "buscame",
+       "buscar",
+       "busques",
+       "pasame"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "pon maneskin en youtube",
+    "busca recetas en youtube",
+    "abre youtube"
+   ]
+  },
+  {
+   "id": "google_buscar",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 4,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "google",
+       "gugle"
+      ],
+      [
+       "busca",
+       "buscame",
+       "buscar",
+       "busques",
+       "googlea",
+       "googlear",
+       "investiga",
+       "investigame",
+       "encuentra",
+       "encuentrame",
+       "abre",
+       "abrir",
+       "muestrame",
+       "dime",
+       "dame"
+      ]
+     ]
+    },
+    {
+     "todas": [
+      [
+       "busca",
+       "buscame",
+       "buscar",
+       "busques",
+       "googlea",
+       "googlear",
+       "investiga",
+       "investigame"
+      ]
+     ],
+     "no": [
+      "celular",
+      "telefono",
+      "movil",
+      "cel",
+      "archivo",
+      "archivos",
+      "carpeta",
+      "carpetas",
+      "documento",
+      "documentos",
+      "contacto",
+      "contactos",
+      "mensaje",
+      "mensajes",
+      "correo",
+      "recordatorio",
+      "recordatorios",
+      "nota",
+      "notas",
+      "tarea",
+      "tareas",
+      "youtube",
+      "notificaciones",
+      "aplicacion",
+      "app"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "busca wikipedia en google",
+    "busca recetas de pizza"
+   ]
+  },
+  {
+   "id": "hora_fecha",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "hora"
+      ],
+      [
+       "que",
+       "cual",
+       "dime",
+       "dame",
+       "dices",
+       "tienes",
+       "es",
+       "son"
+      ]
+     ],
+     "no": [
+      "a",
+      "alarma",
+      "temporizador",
+      "timer",
+      "despiertame",
+      "despierta",
+      "pon",
+      "ponme",
+      "partido",
+      "reunion",
+      "cita",
+      "sale",
+      "llega",
+      "empieza",
+      "termina",
+      "abre",
+      "cierra"
+     ]
+    },
+    {
+     "todas": [
+      [
+       "fecha"
+      ],
+      [
+       "hoy",
+       "es",
+       "dime",
+       "dame",
+       "cual",
+       "que",
+       "actual",
+       "dices"
+      ]
+     ],
+     "no": [
+      "alarma",
+      "evento",
+      "recordatorio",
+      "cumple"
+     ]
+    },
+    {
+     "todas": [
+      [
+       "dia"
+      ],
+      [
+       "que",
+       "cual"
+      ],
+      [
+       "hoy",
+       "es",
+       "estamos"
+      ]
+     ],
+     "no": [
+      "buen",
+      "buenos",
+      "alarma"
+     ]
+    },
+    {
+     "todas": [
+      [
+       "estamos"
+      ],
+      [
+       "cuanto",
+       "que",
+       "cual"
+      ]
+     ]
+    },
+    {
+     "todas": [
+      [
+       "mes",
+       "ano"
+      ],
+      [
+       "que",
+       "cual"
+      ],
+      [
+       "es",
+       "estamos"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "quÃ© hora es",
+    "quÃ© dÃ­a es hoy",
+    "a cuÃ¡nto estamos"
+   ]
+  },
+  {
+   "id": "foto",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "foto",
+       "fotos",
+       "fotito",
+       "fotografia",
+       "fotografiar",
+       "selfie",
+       "selfi"
+      ],
+      [
+       "toma",
+       "tomar",
+       "tomame",
+       "tomate",
+       "tomarme",
+       "tomes",
+       "saca",
+       "sacar",
+       "sacame",
+       "hazme",
+       "haz",
+       "hacer",
+       "dispara",
+       "disparar",
+       "tira",
+       "tirame",
+       "capturame"
+      ]
+     ],
+     "no": [
+      "pantalla",
+      "captura",
+      "descarga",
+      "descargar",
+      "muestrame",
+      "ver",
+      "galeria",
+      "borra",
+      "borrar",
+      "elimina",
+      "manda",
+      "envia",
+      "enviame",
+      "mandame",
+      "comparte"
+     ]
+    },
+    {
+     "todas": [
+      [
+       "camara"
+      ],
+      [
+       "dispara",
+       "disparar"
+      ]
+     ]
+    },
+    {
+     "todas": [
+      [
+       "selfie",
+       "selfi",
+       "frontal",
+       "delantera",
+       "enfrente",
+       "adelante"
+      ],
+      [
+       "foto",
+       "fotos",
+       "fotografia",
+       "camara",
+       "selfie",
+       "selfi"
+      ]
+     ],
+     "no": [
+      "pantalla",
+      "captura",
+      "descarga",
+      "descargar",
+      "muestrame",
+      "ver",
+      "galeria",
+      "borra",
+      "borrar",
+      "elimina",
+      "manda",
+      "envia",
+      "enviame",
+      "mandame",
+      "comparte",
+      "abre",
+      "abrir",
+      "abreme",
+      "lanza"
+     ]
+    },
+    {
+     "todas": [
+      [
+       "selfie",
+       "selfi"
+      ]
+     ],
+     "no": [
+      "pantalla",
+      "captura",
+      "descarga",
+      "descargar",
+      "muestrame",
+      "ver",
+      "galeria",
+      "borra",
+      "borrar",
+      "elimina",
+      "manda",
+      "envia",
+      "enviame",
+      "mandame",
+      "comparte",
+      "abre",
+      "abrir",
+      "abreme",
+      "lanza"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "toma una foto",
+    "tÃ³mame una selfie",
+    "saca una foto",
+    "toma una foto con la cÃ¡mara frontal",
+    "toma foto frontal",
+    "selfie"
+   ]
+  },
+  {
+   "id": "captura_celular",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "captura",
+       "capturas",
+       "capturar",
+       "screenshot",
+       "screenshots",
+       "pantallazo",
+       "pantallazos",
+       "capturame",
+       "captureme"
+      ]
+     ],
+     "no": [
+      "descarga",
+      "descargar",
+      "galeria",
+      "borra",
+      "borrar",
+      "elimina",
+      "eliminar",
+      "apaga",
+      "apagar"
+     ]
+    },
+    {
+     "todas": [
+      [
+       "pantalla"
+      ],
+      [
+       "celular",
+       "telefono",
+       "movil",
+       "cel"
+      ],
+      [
+       "ver",
+       "veo",
+       "muestrame",
+       "muestra",
+       "mostrar",
+       "pasame"
+      ]
+     ],
+     "no": [
+      "apaga",
+      "apagar",
+      "brillo"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "toma una captura de pantalla",
+    "haz un screenshot de mi celular",
+    "quiero ver la pantalla de mi celular"
+   ]
+  },
+  {
+   "id": "bloquear_celular",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 3,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "bloquea",
+       "bloquear",
+       "bloqueame",
+       "bloqueala",
+       "bloqueale"
+      ]
+     ],
+     "no": [
+      "numero",
+      "numeros",
+      "contacto",
+      "contactos",
+      "whatsapp",
+      "llamada",
+      "llamadas",
+      "app",
+      "apps",
+      "aplicacion",
+      "aplicaciones",
+      "wifi",
+      "bluetooth",
+      "datos",
+      "laptop",
+      "compu",
+      "computadora",
+      "pc",
+      "portatil",
+      "ordenador",
+      "sesion",
+      "windows",
+      "archivo",
+      "archivos",
+      "carpeta",
+      "cuenta",
+      "usuario",
+      "sitio",
+      "pagina",
+      "spam"
+     ]
+    }
+   ],
+   "ejemplos": [
+    "bloquea mi celular",
+    "bloquea la pantalla del celular",
+    "bloquea el telefono"
+   ]
+  },
+  {
+   "id": "abrir_app",
+   "nodo": "ambos",
+   "riesgo": "bajo",
+   "confirmar": false,
+   "prioridad": 1,
+   "reglas": [
+    {
+     "todas": [
+      [
+       "abre",
+       "abrir",
+       "abreme",
+       "lanza",
+       "ejecuta",
+       "inicia",
+       "arranca"
+      ]
+     ]
+    }
+   ],
+   "ejemplos": [
+    "abre youtube en mi celular",
+    "abre la camara"
+   ]
+  }
+ ]
+}

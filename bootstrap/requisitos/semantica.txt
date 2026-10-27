@@ -1,0 +1,6 @@
+# Capa 2 del motor (embeddings) sobre ONNX Runtime: sin torch, transformers, scipy ni scikit-learn.
+# El modelo ONNX (model.onnx + tokenizer.json, ~0.5 GB) lo baja embeddings.py (--instalar) a runtime/embeddings_onnx.
+# onnxruntime y tokenizers tambien los pide faster-whisper: se mantienen las MISMAS versiones que voz_salida y voz_entrada.
+numpy==2.4.1
+onnxruntime==1.31.0
+tokenizers==0.23.3
