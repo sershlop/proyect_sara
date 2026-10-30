@@ -593,13 +593,6 @@ _d("CEL_CARPETA_RECIBIDO", "")        # "" = <carpeta de config.py>/carpetas_cre
 _d("CEL_HUELLA_CAPS", ("llamar", "sms", "notificaciones_leer"))   # laptop→celular: piden huella EN el celular
 _d("CEL_MAX_CUERPO_SUBIDA", 1_500_000)
 _d("CEL_BLOB_TTL_S", 1800)
-
-_d("CEL_PANTALLA_VIVO_ACTIVA", True)
-_d("CEL_PANTALLA_VIVO_INTERVALO_S", 0.6)
-_d("CEL_PANTALLA_CELULAR_ACTIVA", True)
-_d("CEL_PANTALLA_CELULAR_MAX_BYTES", 1000000)
-_d("CEL_PANTALLA_CONTROL_AVISO_ACCESIBILIDAD", True)
-
 # Voz de entrada (STT) — stt.py usa estos valores; sin ellos usa los mismos por defecto
 _d("STT_MODELO", "base")
 _d("STT_IDIOMA", "es")
@@ -609,6 +602,8 @@ _d("STT_MIN_VOZ_S", 0.35)             # menos voz que esto se descarta como ruid
 _d("STT_UMBRAL_POS_DEFECTO", 35)      # posición inicial del slider (0-100)
 _d("STT_REQUERIR_ACTIVACION", True)   # False = atiende cualquier frase (comportamiento anterior)
 _d("STT_PALABRAS_ACTIVACION", ("sara", "sarah", "zara", "sarra"))
+_d("STT_LIBERAR_MIN", 5)             # minutos inactivo antes de descargar Whisper; 0 = nunca
+_d("STT_PRECALENTAR_TELEGRAM", False) # True conserva la precarga anticipada de notas de voz
 # Abridor inteligente (abridor_inteligente.py) — todos opcionales
 _d("ABRIDOR_ACTIVO", True)
 _d("ABRIDOR_PREGUNTAR_EDITOR", True)      # False = usa siempre el último editor elegido para esa extensión
@@ -683,9 +678,14 @@ _d('CONV_NOMBRE_USUARIO', os.getenv('SARA_USUARIO') or 'usuario')
 _d('CONV_TEMPERATURA', 0.6)
 _d('CONV_TIMEOUT_S', 8.0)
 _d('LIMPIEZA_NUM_CTX', 1024)
-_d('OLLAMA_KEEP_ALIVE', '30m')
-_d('PULSO_CALOR_ACTIVO', True)
+_d('OLLAMA_KEEP_ALIVE', '5m')                    # permite que Ollama descargue el modelo tras unos minutos sin uso
+_d('CALENTAR_QWEN_AL_ARRANQUE', False)           # True recupera la precarga del modelo al iniciar SARA
+_d('PULSO_CALOR_ACTIVO', False)                  # True activa las consultas de calentamiento periódicas
+_d('PRECALENTAR_VOZ_AL_ARRANQUE', False)         # True precarga voz y muletillas al iniciar
+_d('PIPER_PRECALENTAR_RESPALDO', False)           # True carga Piper aunque la voz Edge aún funcione
 _d('PULSO_CALOR_S', 90)
+_d('INTERVALO_REINDEXADO_SEGUNDOS', 3600)        # 600 = frecuencia anterior; el recorrido inicial no cambia
+_d('PIPER_LIBERAR_MIN', 10)                      # 0 conserva Piper cargado hasta cerrar SARA
 _d('RAPIDO_TIMEOUT_S', 1.5)
 _d('VOL_PERMITIR_REMOTO', True)
 # Reintento con limpieza de frase (STT ligero): si "abre calculatora" falla, la IA externa la limpia UNA vez
@@ -758,6 +758,11 @@ _d("PANTALLA_VISION_LOCAL", True)                   # describir con Ollama (llav
 _d("PANTALLA_VISION_ORDEN", ("gemini", "local"))   # orden de intento; Gemini solo si PANTALLA_DESCRIBIR está activo
 _d("PANTALLA_MODELO_LOCAL", "")                     # "" = usa QWEN_MODEL
 _d("PANTALLA_TIMEOUT_LOCAL_S", 90)                  # en CPU, la primera carga del modelo puede tardar
+_d("CEL_PANTALLA_VIVO_ACTIVA", True)                # False desactiva la transmisión de pantalla al celular
+_d("CEL_PANTALLA_VIVO_INTERVALO_S", 0.6)            # captura bajo demanda; ~1.7 cuadros/s para limitar CPU y red
+_d("CEL_PANTALLA_CELULAR_ACTIVA", True)             # False desactiva la recepción en vivo de pantalla desde el celular
+_d("CEL_PANTALLA_CELULAR_MAX_BYTES", 1000000)       # límite de cada fotograma cifrado recibido
+_d("CEL_PANTALLA_CONTROL_AVISO_ACCESIBILIDAD", True) # False conserva el aviso previo sin estado remoto
 _d("ALERTAS_ACTIVAS", True)               # maestro; lo persiste sara_ajustes.json
 _d("ALERTAS_HILO", True)
 _d("ALERTAS_INTERVALO_S", 30)

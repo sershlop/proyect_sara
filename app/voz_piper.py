@@ -31,10 +31,21 @@ import threading
 import time
 import urllib.request
 import wave
+import gc
 from pathlib import Path
 from typing import Dict, List, Optional
 
 logger = logging.getLogger("SARA-PIPER")
+
+try:
+    import config as _cfg
+except Exception:
+    _cfg = None
+
+
+def _c(nombre: str, defecto):
+    return getattr(_cfg, nombre, defecto) if _cfg is not None else defecto
+
 
 PREFIJO = "piper:"
 VOZ_BASE = "piper:es_MX-claude-high"                # la que instala el instalador por defecto
@@ -54,7 +65,10 @@ _ultimo_error = ""
 _modulo = None                                       # el paquete `piper` (None = no probado; False = no instalado)
 _cargadas: Dict[str, object] = {}                    # modelo → PiperVoice (solo se conserva el último usado: RAM)
 _lock_carga = threading.Lock()
+_lock_uso = threading.RLock()
 _locks_descarga: Dict[str, threading.Lock] = {}
+_timer_liberacion: Optional[threading.Timer] = None
+_generacion_liberacion = 0
 
 
 # ─── DISPONIBILIDAD ───────────────────────────────────────────────────────
@@ -221,6 +235,56 @@ def _cargar(v: dict):
         return voz
 
 
+def _liberar_si_ociosa(generacion: int) -> None:
+    global _timer_liberacion
+    with _lock_uso:
+        with _lock_carga:
+            if generacion != _generacion_liberacion:
+                return
+            _timer_liberacion = None
+            if not _cargadas:
+                return
+            _cargadas.clear()
+        gc.collect()
+        logger.info("🔊 Piper liberado de la RAM tras inactividad")
+
+
+def _programar_liberacion() -> None:
+    global _timer_liberacion, _generacion_liberacion
+    try:
+        minutos = max(0.0, float(_c("PIPER_LIBERAR_MIN", 10)))
+    except (TypeError, ValueError):
+        minutos = 10.0
+    with _lock_carga:
+        _generacion_liberacion += 1
+        if _timer_liberacion is not None:
+            _timer_liberacion.cancel()
+            _timer_liberacion = None
+        if minutos <= 0 or not _cargadas:
+            return
+        _timer_liberacion = threading.Timer(minutos * 60, _liberar_si_ociosa,
+                                             args=(_generacion_liberacion,))
+        _timer_liberacion.name = "sara-piper-idle"
+        _timer_liberacion.daemon = True
+        _timer_liberacion.start()
+
+
+def liberar() -> bool:
+    global _timer_liberacion, _generacion_liberacion
+    with _lock_uso:
+        with _lock_carga:
+            _generacion_liberacion += 1
+            if _timer_liberacion is not None:
+                _timer_liberacion.cancel()
+                _timer_liberacion = None
+            habia_modelo = bool(_cargadas)
+            _cargadas.clear()
+        if habia_modelo:
+            gc.collect()
+            logger.info("🔊 Piper liberado de la RAM")
+        return habia_modelo
+
+
 def precargar(voz_id: str) -> None:
     """Carga el modelo en segundo plano para que la primera frase no pague el arranque."""
     v = _info(voz_id)
@@ -229,7 +293,9 @@ def precargar(voz_id: str) -> None:
 
     def _run():
         try:
-            _cargar(v)
+            with _lock_uso:
+                _cargar(v)
+                _programar_liberacion()
         except Exception as e:
             logger.debug(f"piper: precarga falló: {e}")
     threading.Thread(target=_run, name="sara-piper-warm", daemon=True).start()
@@ -250,17 +316,20 @@ def sintetizar_wav(texto: str, voz_id: str, destino) -> bool:
     destino = Path(destino)
     tmp = destino.with_suffix(f".{threading.get_ident()}.tmp")
     try:
-        voz = _cargar(v)
-        cfg = None
-        if v["speaker"] is not None or os.getenv("SARA_PIPER_VELOCIDAD"):
-            kw = {}
-            if v["speaker"] is not None:
-                kw["speaker_id"] = v["speaker"]
-            if os.getenv("SARA_PIPER_VELOCIDAD"):    # length_scale: <1 más rápido, >1 más lento (por defecto, el de la voz)
-                kw["length_scale"] = float(os.getenv("SARA_PIPER_VELOCIDAD"))
-            cfg = _piper().SynthesisConfig(**kw)
-        with wave.open(str(tmp), "wb") as wf:
-            voz.synthesize_wav(texto, wf, syn_config=cfg)
+        with _lock_uso:
+            voz = _cargar(v)
+            _programar_liberacion()
+            cfg = None
+            if v["speaker"] is not None or os.getenv("SARA_PIPER_VELOCIDAD"):
+                kw = {}
+                if v["speaker"] is not None:
+                    kw["speaker_id"] = v["speaker"]
+                if os.getenv("SARA_PIPER_VELOCIDAD"):    # length_scale: <1 más rápido, >1 más lento (por defecto, el de la voz)
+                    kw["length_scale"] = float(os.getenv("SARA_PIPER_VELOCIDAD"))
+                cfg = _piper().SynthesisConfig(**kw)
+            with wave.open(str(tmp), "wb") as wf:
+                voz.synthesize_wav(texto, wf, syn_config=cfg)
+            _programar_liberacion()
         if not tmp.exists() or tmp.stat().st_size <= 44:
             raise RuntimeError("Piper devolvió un WAV vacío")
         os.replace(tmp, destino)

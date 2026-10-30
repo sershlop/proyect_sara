@@ -12,6 +12,19 @@ setlocal
 title SARA
 cd /d "%~dp0"
 
+:: El doble clic inicia el arranque en segundo plano para que solo quede visible la GUI.
+:: Con argumentos conserva la consola para configuracion, diagnostico y reparacion.
+if /i "%SARA_LAUNCH_HIDDEN%"=="1" goto :SARA_CONTINUAR
+if not "%~1"=="" goto :SARA_CONTINUAR
+if not exist "%~dp0runtime\python\python.exe" goto :SARA_CONTINUAR
+if not exist "%~dp0runtime\estado.json" goto :SARA_CONTINUAR
+if not exist "%~dp0app\.env" goto :SARA_CONTINUAR
+if not exist "%~dp0SARA_oculto.vbs" goto :SARA_CONTINUAR
+wscript.exe //B //Nologo "%~dp0SARA_oculto.vbs" "%~f0"
+exit /b 0
+
+:SARA_CONTINUAR
+
 set "SARA_ROOT=%~dp0"
 set "SARA_PYDIR=%~dp0runtime\python"
 set "SARA_VENDOR=%~dp0bootstrap\vendor\python-embed.zip"

@@ -124,6 +124,7 @@ FÓRMULAS QUE ENTIENDE EL NÚCLEO (úsalas tal cual cuando apliquen)
 - Volumen del equipo: "sube el volumen", "baja el volumen", "silencia", "pon el volumen al 40", "a cuánto está el volumen"
 - Foto y ubicación (SARA SÍ puede): "toma una foto" (webcam de la LAPTOP), "toma una foto con mi celular" / "tómame una selfie en mi celular" (cámara del CELULAR; conserva SIEMPRE la palabra «celular» y, si lo pidió, «frontal» o «selfie»; sin eso toma con la cámara trasera), "toma una foto con la cámara frontal de mi celular", "dónde está mi laptop"
 - Pantalla (SARA SÍ puede): "quiero ver la pantalla", "qué está pasando en la pantalla", "qué significa este error"
+- Pantalla en vivo: desde el celular, "activa la pantalla en vivo" muestra la laptop en el teléfono; desde la laptop, "activa la pantalla en vivo de mi celular" muestra el teléfono en una ventana de la laptop. Para detener, indica el destino. Android siempre exige aceptar explícitamente la captura de pantalla.
 - Captura de pantalla del CELULAR (SARA SÍ puede): "toma una captura de pantalla en mi celular", "haz un screenshot de mi celular", "quiero ver la pantalla de mi celular" (conserva SIEMPRE la palabra «celular»; sin ella es la pantalla de la LAPTOP)
 - Enviar archivo: "mándame el archivo NOMBRE"
 - Modos: "activa el modo NOMBRE", "qué modos tengo"

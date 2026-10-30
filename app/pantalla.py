@@ -3,7 +3,7 @@
 # negra y avisa en vez de mandar una imagen vacía. La descripción con IA de visión (Gemini) está APAGADA por defecto
 # (PANTALLA_DESCRIBIR): manda tu pantalla a un servicio externo.
 PANTALLA_VERSION = "v1"
-import base64, logging, os, re, struct, unicodedata, zlib
+import base64, logging, math, os, re, struct, unicodedata, zlib
 from typing import Callable, Optional, Tuple
 log = logging.getLogger("SARA-PANTALLA")
 try:
@@ -97,7 +97,7 @@ def _bgra() -> Tuple[int, int, bytes]:
     finally:
         mem.DeleteDC(); src.DeleteDC(); win32gui.ReleaseDC(hw, hdc); win32gui.DeleteObject(bmp.GetHandle())
 
-def capturar() -> Tuple[Optional[bytes], str]:
+def capturar(escala: Optional[int] = None) -> Tuple[Optional[bytes], str]:
     """(png, '') o (None, motivo). Nunca lanza."""
     if os.name != "nt":
         return None, "La captura de pantalla solo funciona en Windows."
@@ -107,7 +107,15 @@ def capturar() -> Tuple[Optional[bytes], str]:
         w, h, data = _bgra()
         if _es_negra(data):
             return None, "⬛ La pantalla salió completamente negra (apagada o en suspensión); no te mando una imagen vacía."
-        return png_desde_bgra(w, h, data, max(1, int(_c("PANTALLA_ESCALA", 1)))), ""
+        paso = _c("PANTALLA_ESCALA", 1) if escala is None else escala
+        limite = max(
+            1,
+            math.ceil(w / 1920),
+            math.ceil(h / 1920),
+            math.ceil(math.sqrt(w * h / 4_000_000)),
+        )
+        paso = max(limite, int(paso))
+        return png_desde_bgra(w, h, data, max(1, int(paso))), ""
     except ImportError:
         return None, "Falta pywin32 (pip install pywin32)."
     except Exception as e:

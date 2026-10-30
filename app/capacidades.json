@@ -1,6 +1,6 @@
 {
  "version": 1,
- "nota": "Fuente única de capacidades: la leen celular.py (laptop) y SARA móvil (Kotlin). Una regla coincide si CADA grupo de 'todas' tiene al menos una palabra presente y ninguna de 'no' lo está. Gana la mayor 'prioridad'; a igual prioridad, la primera de la lista. nodo: celular = siempre va al celular; ambos = solo va al celular si el usuario lo nombra (celular/telefono/movil/cel).",
+ "nota": "Fuente única de capacidades: la leen celular.py (laptop) y SARA móvil (Kotlin). Una regla coincide si CADA grupo de 'todas' tiene al menos una palabra presente y ninguna de 'no' lo está. Gana la mayor 'prioridad'; a igual prioridad, la primera de la lista. nodo: celular = siempre va al celular; ambos = solo va al celular si el usuario lo nombra (celular/telefono/movil/cel); laptop = siempre se envía al equipo emparejado.",
  "capacidades": [
   {
    "id": "linterna_on",
@@ -1380,6 +1380,127 @@
     "bloquea mi celular",
     "bloquea la pantalla del celular",
     "bloquea el telefono"
+   ]
+  },
+  {
+   "id": "pantalla_celular_vivo_detener",
+   "nodo": "celular",
+   "riesgo": "medio",
+   "confirmar": false,
+   "prioridad": 8,
+   "reglas": [
+    {
+     "todas": [
+      ["pantalla"],
+      ["vivo", "viva", "directo", "directa", "stream", "streaming", "transmision"],
+      ["deten", "detener", "para", "parar", "desactiva", "desactivar", "cierra", "cerrar", "termina", "terminar", "finaliza", "finalizar"],
+      ["celular", "telefono", "movil", "cel"]
+     ],
+     "no": ["laptop", "computadora", "ordenador", "captura", "capturas", "foto", "webcam"]
+    },
+    {
+     "todas": [
+      ["pantalla"],
+      ["tiempo"],
+      ["real"],
+      ["deten", "detener", "para", "parar", "desactiva", "desactivar", "cierra", "cerrar", "termina", "terminar", "finaliza", "finalizar"],
+      ["celular", "telefono", "movil", "cel"]
+     ],
+     "no": ["laptop", "computadora", "ordenador", "captura", "capturas", "foto", "webcam"]
+    }
+   ],
+   "ejemplos": ["detén la pantalla en vivo de mi celular", "cierra la pantalla en tiempo real del teléfono"]
+  },
+  {
+   "id": "pantalla_celular_vivo_iniciar",
+   "nodo": "celular",
+   "riesgo": "medio",
+   "confirmar": false,
+   "prioridad": 8,
+   "reglas": [
+    {
+     "todas": [
+      ["pantalla"],
+      ["vivo", "viva", "directo", "directa", "stream", "streaming", "transmision"],
+      ["activa", "activar", "inicia", "iniciar", "abre", "abrir", "muestra", "mostrar", "muestrame", "ensena", "ver", "quiero", "pon", "poner", "comparte", "compartir", "transmite", "transmitir"],
+      ["celular", "telefono", "movil", "cel"]
+     ],
+     "no": ["laptop", "computadora", "ordenador", "captura", "capturas", "foto", "webcam", "deten", "detener", "desactiva", "desactivar", "cierra", "cerrar"]
+    },
+    {
+     "todas": [
+      ["pantalla"],
+      ["tiempo"],
+      ["real"],
+      ["activa", "activar", "inicia", "iniciar", "abre", "abrir", "muestra", "mostrar", "muestrame", "ensena", "ver", "quiero", "pon", "poner", "comparte", "compartir", "transmite", "transmitir"],
+      ["celular", "telefono", "movil", "cel"]
+     ],
+     "no": ["laptop", "computadora", "ordenador", "captura", "capturas", "foto", "webcam", "deten", "detener", "desactiva", "desactivar", "cierra", "cerrar"]
+    }
+   ],
+   "ejemplos": ["activa la pantalla en vivo de mi celular", "muéstrame en tiempo real la pantalla del teléfono"]
+  },
+  {
+   "id": "pantalla_vivo_detener",
+   "nodo": "laptop",
+   "riesgo": "medio",
+   "confirmar": false,
+   "prioridad": 7,
+   "reglas": [
+    {
+     "todas": [
+      ["pantalla"],
+      ["vivo", "viva", "directo", "directa", "stream", "streaming", "transmision"],
+      ["deten", "detener", "para", "parar", "desactiva", "desactivar", "cierra", "cerrar", "termina", "terminar", "finaliza", "finalizar", "apaga", "apagar"]
+     ],
+     "no": ["celular", "telefono", "movil", "captura", "capturas", "foto", "webcam"]
+    },
+    {
+     "todas": [
+      ["pantalla"],
+      ["tiempo"],
+      ["real"],
+      ["deten", "detener", "para", "parar", "desactiva", "desactivar", "cierra", "cerrar", "termina", "terminar", "finaliza", "finalizar", "apaga", "apagar"]
+     ],
+     "no": ["celular", "telefono", "movil", "captura", "capturas", "foto", "webcam"]
+    }
+   ],
+   "ejemplos": [
+    "detén la pantalla en vivo",
+    "cierra la pantalla en vivo de la laptop",
+    "desactiva la pantalla en tiempo real"
+   ]
+  },
+  {
+   "id": "pantalla_vivo_iniciar",
+   "nodo": "laptop",
+   "riesgo": "medio",
+   "confirmar": false,
+   "prioridad": 7,
+   "reglas": [
+    {
+     "todas": [
+      ["pantalla"],
+      ["vivo", "viva", "directo", "directa", "stream", "streaming", "transmision"],
+      ["activa", "activar", "inicia", "iniciar", "abre", "abrir", "muestra", "mostrar", "muestrame", "ensena", "ver", "quiero", "pon", "poner", "comparte", "compartir", "transmite", "transmitir"]
+     ],
+     "no": ["celular", "telefono", "movil", "captura", "capturas", "foto", "webcam", "deten", "detener", "desactiva", "desactivar", "cierra", "cerrar", "apaga", "apagar"]
+    },
+    {
+     "todas": [
+      ["pantalla"],
+      ["tiempo"],
+      ["real"],
+      ["activa", "activar", "inicia", "iniciar", "abre", "abrir", "muestra", "mostrar", "muestrame", "ensena", "ver", "quiero", "pon", "poner", "comparte", "compartir", "transmite", "transmitir"]
+     ],
+     "no": ["celular", "telefono", "movil", "captura", "capturas", "foto", "webcam", "deten", "detener", "desactiva", "desactivar", "cierra", "cerrar", "apaga", "apagar"]
+    }
+   ],
+   "ejemplos": [
+    "activa la pantalla en vivo",
+    "muéstrame en vivo la pantalla de la laptop",
+    "muestra en tiempo real lo que pasa en la pantalla",
+    "activa la transmisión de pantalla de la laptop"
    ]
   },
   {

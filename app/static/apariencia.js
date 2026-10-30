@@ -82,19 +82,21 @@
                 }
             });
         }
-        function paso(ahora) {
-            raf = requestAnimationFrame(paso);
-            if (ahora - previo < 1000 / FPS) return;
+        function paso() {
+            raf = 0;
+            if (!activo || document.hidden || congelada()) return;
+            const ahora = performance.now();
             const dt = Math.min((ahora - previo) / 1000, 0.1);
             previo = ahora;
             dibujar(dt);
+            if (activo && !document.hidden && !congelada()) raf = setTimeout(paso, 1000 / FPS);
         }
-        function pausar() { cancelAnimationFrame(raf); raf = 0; }
+        function pausar() { clearTimeout(raf); raf = 0; }
         function arrancar() {
             if (!activo || raf || document.hidden) return;
             if (congelada()) { dibujar(0); return; }
             previo = performance.now();
-            raf = requestAnimationFrame(paso);
+            raf = setTimeout(paso, 1000 / FPS);
         }
         function iniciar() {
             if (activo) return;

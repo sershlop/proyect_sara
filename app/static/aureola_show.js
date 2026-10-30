@@ -93,6 +93,7 @@ window.SaraShow = (() => {
     function actividad() {
         ultima = performance.now();
         yaMostrado = false;            // hubo actividad real: otro show vuelve a ser posible
+        pararRevisor();
         armarRevisor();
         if (activo) abortar();
     }
@@ -109,20 +110,29 @@ window.SaraShow = (() => {
         actividad();
     }
 
-    // El vigilante solo existe mientras puede servir de algo: se detiene con las animaciones apagadas, con la ventana
-    // oculta y tras un show completo (cualquier actividad real lo rearma).
+    // Un timeout sustituye el sondeo periódico: se despierta al alcanzar la inactividad objetivo.
     function armarRevisor() {
         if (tRevisor || !animacionOn() || document.hidden) return;
-        tRevisor = setInterval(revisar, 2000);
+        tRevisor = setTimeout(revisar, CFG.ESPERA_MS);
     }
-    function pararRevisor() { clearInterval(tRevisor); tRevisor = 0; }
+    function pararRevisor() { clearTimeout(tRevisor); tRevisor = 0; }
 
     function revisar() {
+        tRevisor = 0;
         if (activo) return;
         if (!animacionOn() || (yaMostrado && !CFG.REPETIR)) { pararRevisor(); return; }
-        if (modal && !modal.classList.contains('hidden')) { ultima = performance.now(); return; }   // confirmación abierta
+        if (modal && !modal.classList.contains('hidden')) {
+            ultima = performance.now();
+            tRevisor = setTimeout(revisar, 2000);
+            return;
+        }   // confirmación abierta
         if (CFG.MODO === 'sobre_aureola' && !dentro) return;
-        if (performance.now() - ultima >= CFG.ESPERA_MS && puedeArmarse()) iniciar();
+        const restante = CFG.ESPERA_MS - (performance.now() - ultima);
+        if (restante > 0) {
+            tRevisor = setTimeout(revisar, restante);
+            return;
+        }
+        if (puedeArmarse()) iniciar();
     }
 
     // ── CICLO DE VIDA ──────────────────────────────────────────────────────────
@@ -131,6 +141,7 @@ window.SaraShow = (() => {
         g = A.geometria();
         if (!g) return;
         activo = true; cerrando = false; cierreOK = false;
+        pararRevisor();
         T = 0; Th = 0; explotado = false; regrupado = false;
         construir();
         canvas.classList.add('activo');                                        // el lienzo aparece (0.4 s)
@@ -157,6 +168,10 @@ window.SaraShow = (() => {
         canvas.width = 0; canvas.height = 0;     // libera la memoria del lienzo a pantalla completa (antes quedaba reservada)
         hilos = []; chispas = [];
         ultima = performance.now();
+        if (!yaMostrado || CFG.REPETIR) {
+            pararRevisor();
+            armarRevisor();
+        }
     }
 
     // ── CONSTRUCCIÓN DE LA ESCENA ──────────────────────────────────────────────
@@ -404,6 +419,8 @@ window.SaraShow = (() => {
     document.addEventListener('visibilitychange', actividad);
     document.addEventListener('visibilitychange', () => { if (document.hidden) pararRevisor(); });   // actividad() lo rearma al volver
     document.documentElement.addEventListener('mouseleave', () => { dentro = false; });
+    if (mqReducir.addEventListener) mqReducir.addEventListener('change', actividad);
+    else mqReducir.addListener(actividad);
     if (window.SaraAnimacion) window.SaraAnimacion.alCambiar((on) => {
         if (on) actividad();                                   // reinicia el reloj de inactividad y rearma el vigilante
         else { pararRevisor(); if (activo) abortar(); }        // apagado: se detiene el vigilante y cualquier show en curso

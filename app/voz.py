@@ -50,7 +50,7 @@
 #   * Se retiran las voces Piper «medium» (Ald, Davefx, Sharvard). Entran Kokoro (voz_kokoro.py: Dora y Alex) y la voz
 #     Piper de calidad alta es_MX-claude-high. Ids «kokoro:<voz>» y «piper:<modelo>».
 #   * Respaldo si Edge cae: Kokoro del mismo género → Piper → voz de Windows.
-#   * Velocidad: el modelo local se precarga al arrancar/elegir la voz (sin pagar la carga en la 1.ª frase), las frases
+#   * Velocidad: el modelo local se puede precargar al arrancar/elegir la voz (sin pagar la carga en la 1.ª frase), las frases
 #     se parten en trozos cortos (suena el 1.º mientras se sintetiza el 2.º) y las notas de Telegram reutilizan caché.
 #
 # v3.6 (15 oct 2026): SIN INTERNET queda solo Piper «claude» + la voz de Windows; CON INTERNET siguen las de Edge-TTS.
@@ -87,6 +87,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable, List, Optional
+
+import config as _config
 
 logger = logging.getLogger("SARA-VOZ")
 
@@ -647,14 +649,18 @@ _precalentado = False
 
 
 def precalentar() -> None:
-    """Genera en segundo plano las muletillas (llamar una vez al arrancar SARA)."""
+    """Genera muletillas y precarga la voz local cuando se solicita expresamente."""
     global _precalentado
     if _precalentado or not _activa or _es_windows(_voz_actual):
         return
     _precalentado = True
     voz_pre = _voz_actual
     try:                                    # carga el modelo local YA (la 1.ª frase y la 1.ª nota de Telegram no pagan el arranque)
-        for v in {voz_pre, _piper_respaldo(voz_pre) if _es_edge(voz_pre) else None}:
+        voces_locales = {voz_pre}
+        respaldo = _piper_respaldo(voz_pre) if _es_edge(voz_pre) else None
+        if respaldo and getattr(_config, "PIPER_PRECALENTAR_RESPALDO", False):
+            voces_locales.add(respaldo)
+        for v in voces_locales:
             if v and _es_piper(v) and _mod_local(v) is not None:
                 _mod_local(v).precargar(v)
     except Exception as e:

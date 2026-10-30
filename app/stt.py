@@ -15,6 +15,7 @@
 #     más una cola de 0.7 s después de que termina de hablar.
 #   * El modelo se carga al primer uso (no al arrancar SARA). Primera vez: descarga (~150 MB, requiere
 #     internet una sola vez). Después funciona 100 % offline desde la caché de Hugging Face.
+#   * Numpy también se importa solo al usar audio; Whisper se libera tras STT_LIBERAR_MIN sin micrófono ni transcripciones.
 #   * Desacoplado: este módulo solo produce TEXTO. A qué motor de lenguaje se enruta es cosa de quien
 #     consuma `stt_texto` (hoy, el mismo clasificador de SARA).
 #
@@ -29,6 +30,7 @@
 #      set_voz_hablando(bool) · esta_activo() · diagnostico()
 
 import collections
+import gc
 import json
 import logging
 import math
@@ -42,11 +44,6 @@ from pathlib import Path
 from typing import Callable, Optional
 
 logger = logging.getLogger("SARA-STT")
-
-try:
-    import numpy as np
-except Exception:                                    # sin numpy no hay STT, pero SARA sigue viva
-    np = None
 
 try:
     import config
@@ -105,6 +102,9 @@ _ALUCINACIONES = (
 # ─── ESTADO ───────────────────────────────────────────────────────────────
 
 _lock = threading.RLock()
+_numpy_lock = threading.Lock()
+np = None
+_numpy_error = ""
 _emit: Optional[Callable] = None
 _activo = False
 _estado = "apagado"
@@ -112,7 +112,9 @@ _mensaje = ""
 _stop: Optional[threading.Event] = None
 _hilo: Optional[threading.Thread] = None
 _modelo = None
-_modelo_lock = threading.Lock()
+_modelo_lock = threading.RLock()
+_timer_liberacion_modelo: Optional[threading.Timer] = None
+_generacion_liberacion_modelo = 0
 _transcripcion_lock = threading.Lock()   # el micrófono y las notas de voz comparten el modelo: una a la vez
 _ultimo_error = ""
 _voz_hablando = False
@@ -132,6 +134,24 @@ def _leer_umbral_guardado() -> float:
 
 
 _pos = _leer_umbral_guardado()
+
+
+def _cargar_numpy():
+    """Carga numpy solo cuando se usa el micrófono o se transcribe una nota de voz."""
+    global np, _numpy_error
+    if np is not None:
+        return np
+    with _numpy_lock:
+        if np is not None:
+            return np
+        try:
+            import numpy as numpy_mod
+        except Exception as e:
+            _numpy_error = f"{type(e).__name__}: {e}"
+            return None
+        np = numpy_mod
+        _numpy_error = ""
+        return np
 
 
 # ─── ESCALA DEL UMBRAL ────────────────────────────────────────────────────
@@ -187,6 +207,7 @@ def _fallar(stop: threading.Event, mensaje: str) -> None:
     _emitir("stt_estado", estado="error", activo=False, umbral=round(_pos, 1), mensaje=mensaje)
     with _lock:
         _estado, _mensaje = "apagado", ""
+    _programar_liberacion_modelo()
 
 
 # ─── ANTI-ECO ─────────────────────────────────────────────────────────────
@@ -273,10 +294,65 @@ class _Segmentador:
 
 # ─── MODELO Y TRANSCRIPCIÓN ───────────────────────────────────────────────
 
+def _cancelar_liberacion_modelo() -> None:
+    global _timer_liberacion_modelo, _generacion_liberacion_modelo
+    with _modelo_lock:
+        _generacion_liberacion_modelo += 1
+        if _timer_liberacion_modelo is not None:
+            _timer_liberacion_modelo.cancel()
+            _timer_liberacion_modelo = None
+
+
+def _liberar_modelo_si_ocioso(generacion: int) -> None:
+    global _modelo, _timer_liberacion_modelo
+    with _modelo_lock:
+        if generacion != _generacion_liberacion_modelo:
+            return
+        _timer_liberacion_modelo = None
+        with _lock:
+            if _activo or _transcribiendo:
+                return
+        with _transcripcion_lock:
+            with _lock:
+                if _activo or _transcribiendo:
+                    return
+            modelo = _modelo
+            _modelo = None
+    if modelo is not None:
+        del modelo
+        gc.collect()
+        logger.info("🎙️ STT: modelo Whisper liberado tras inactividad")
+
+
+def _programar_liberacion_modelo() -> None:
+    global _timer_liberacion_modelo, _generacion_liberacion_modelo
+    with _lock:
+        if _activo:
+            return
+    try:
+        minutos = max(0.0, float(_cfg("STT_LIBERAR_MIN", 5)))
+    except (TypeError, ValueError):
+        logger.warning("⚠️ STT_LIBERAR_MIN inválido; se usa el valor seguro de 5 minutos")
+        minutos = 5.0
+    with _modelo_lock:
+        _generacion_liberacion_modelo += 1
+        if _timer_liberacion_modelo is not None:
+            _timer_liberacion_modelo.cancel()
+            _timer_liberacion_modelo = None
+        if minutos <= 0 or _modelo is None:
+            return
+        _timer_liberacion_modelo = threading.Timer(
+            minutos * 60, _liberar_modelo_si_ocioso, args=(_generacion_liberacion_modelo,))
+        _timer_liberacion_modelo.name = "sara-stt-idle"
+        _timer_liberacion_modelo.daemon = True
+        _timer_liberacion_modelo.start()
+
+
 def _cargar_modelo():
     """Carga faster-whisper una sola vez. Primero desde la caché local (offline); si no está, lo descarga."""
     global _modelo, _ultimo_error
     with _modelo_lock:
+        _cancelar_liberacion_modelo()
         if _modelo is not None:
             return _modelo
         try:
@@ -365,18 +441,23 @@ def _a_16k(audio, muestreo: int):
 
 
 def _transcribir(modelo, audio, muestreo: int) -> str:
+    if _cargar_numpy() is None:
+        raise RuntimeError(f"numpy no disponible ({_numpy_error})")
     a = _a_16k(audio, muestreo)
-    with _transcripcion_lock:          # `segmentos` es un generador perezoso: el candado cubre todo el recorrido
-        segmentos, _info = modelo.transcribe(
-            a, language=IDIOMA, beam_size=BEAM, temperature=0.0, vad_filter=False,
-            condition_on_previous_text=False, no_speech_threshold=0.6, log_prob_threshold=-1.0,
-            compression_ratio_threshold=2.4, initial_prompt=PROMPT, without_timestamps=True)
-        partes = []
-        for s in segmentos:
-            if getattr(s, "no_speech_prob", 0.0) > 0.6 and getattr(s, "avg_logprob", 0.0) < -1.0:
-                continue
-            partes.append(s.text.strip())
-    return _filtrar(" ".join(p for p in partes if p))
+    try:
+        with _transcripcion_lock:          # `segmentos` es un generador perezoso: el candado cubre todo el recorrido
+            segmentos, _info = modelo.transcribe(
+                a, language=IDIOMA, beam_size=BEAM, temperature=0.0, vad_filter=False,
+                condition_on_previous_text=False, no_speech_threshold=0.6, log_prob_threshold=-1.0,
+                compression_ratio_threshold=2.4, initial_prompt=PROMPT, without_timestamps=True)
+            partes = []
+            for s in segmentos:
+                if getattr(s, "no_speech_prob", 0.0) > 0.6 and getattr(s, "avg_logprob", 0.0) < -1.0:
+                    continue
+                partes.append(s.text.strip())
+        return _filtrar(" ".join(p for p in partes if p))
+    finally:
+        _programar_liberacion_modelo()
 
 
 # ─── TRANSCRIBIR ARCHIVOS (notas de voz de WhatsApp: ogg/opus) ────────────
@@ -414,15 +495,21 @@ def _decodificar_audio(ruta: str, max_s: float):
 
 def precargar_modelo() -> bool:
     """Carga el modelo (si aún no lo está). Para llamarlo en un hilo al activar las notas de voz."""
-    return _cargar_modelo() is not None
+    if not bool(_cfg("STT_PRECALENTAR_TELEGRAM", False)):
+        logger.info("🎙️ STT: precarga anticipada desactivada; Whisper se cargará al recibir audio")
+        return False
+    modelo = _cargar_modelo()
+    if modelo is not None:
+        _programar_liberacion_modelo()
+    return modelo is not None
 
 
 def transcribir_archivo(ruta: str, max_s: float = 60.0) -> Optional[str]:
     """Transcribe un archivo de audio. "" = no se entendió nada útil; None = no se pudo (sin modelo, sin numpy,
     archivo ilegible). Nunca lanza. No toca el estado del modo micrófono (ventana de «Sara», etc.)."""
     global _ultimo_error
-    if np is None:
-        _ultimo_error = "numpy no disponible"
+    if _cargar_numpy() is None:
+        _ultimo_error = f"numpy no disponible ({_numpy_error})"
         return None
     try:
         audio, dur = _decodificar_audio(ruta, max_s)
@@ -454,6 +541,7 @@ def _trabajador_transcripcion() -> None:
             continue
         with _lock:
             _transcribiendo += 1
+        modelo = None
         try:
             modelo = _cargar_modelo()
             if modelo is None:
@@ -473,8 +561,10 @@ def _trabajador_transcripcion() -> None:
         except Exception:
             logger.exception("❌ STT: excepción al transcribir")
         finally:
+            modelo = None
             with _lock:
                 _transcribiendo -= 1
+            _programar_liberacion_modelo()
 
 
 def _asegurar_transcriptor() -> None:
@@ -503,9 +593,10 @@ def _capturar(stop: threading.Event, previo: Optional[threading.Thread]) -> None
     if previo is not None and previo.is_alive():
         previo.join(timeout=3)                       # que la sesión anterior suelte el micrófono
     if stop.is_set():
+        _programar_liberacion_modelo()
         return
-    if np is None:
-        _fallar(stop, "Falta numpy (pip install numpy).")
+    if _cargar_numpy() is None:
+        _fallar(stop, f"Falta numpy ({_numpy_error}; pip install numpy).")
         return
     try:
         import sounddevice as sd
@@ -518,6 +609,7 @@ def _capturar(stop: threading.Event, previo: Optional[threading.Thread]) -> None
         _fallar(stop, _ultimo_error or "No pude cargar el modelo de voz.")
         return
     if stop.is_set():
+        _programar_liberacion_modelo()
         return
 
     audio_q: "queue.Queue" = queue.Queue(maxsize=300)
@@ -611,7 +703,7 @@ def activar(emit: Optional[Callable] = None, umbral=None) -> bool:
 
 
 def desactivar() -> bool:
-    """Apaga el modo voz (el modelo queda en memoria para reactivar rápido)."""
+    """Cierra el micrófono y libera Whisper tras el tiempo de inactividad configurado."""
     global _activo, _stop, _estado, _mensaje
     with _lock:
         if not _activo:
@@ -628,6 +720,7 @@ def desactivar() -> bool:
     _emitir("stt_estado", estado="apagado", activo=False, umbral=round(_pos, 1), mensaje="")
     with _lock:
         _estado, _mensaje = "apagado", ""
+    _programar_liberacion_modelo()
     return True
 
 

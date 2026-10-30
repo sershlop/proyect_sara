@@ -41,8 +41,6 @@ import unicodedata
 from collections import deque
 from typing import List, Optional, Tuple
 
-import requests
-
 log = logging.getLogger("SARA-TG")
 
 try:
@@ -182,10 +180,19 @@ def _owner_id() -> Optional[int]:
 
 _ultimo_error = ""
 _bot_user = ""
+_sesion = None
+_sesion_lock = threading.Lock()
 
 
-_sesion = requests.Session()       # conexión HTTPS reutilizada (evita el handshake TLS en cada envío)
-_sesion.headers.update({"Connection": "keep-alive"})
+def _http_session():
+    """Crea el cliente HTTP solo tras una operación explícita con Telegram."""
+    global _sesion
+    with _sesion_lock:
+        if _sesion is None:
+            import requests
+            _sesion = requests.Session()
+            _sesion.headers.update({"Connection": "keep-alive"})
+        return _sesion
 
 
 def _api(metodo: str, datos: Optional[dict] = None, timeout: float = 15, archivos: Optional[dict] = None) -> Optional[dict]:
@@ -198,9 +205,9 @@ def _api(metodo: str, datos: Optional[dict] = None, timeout: float = 15, archivo
     try:
         url = f"https://api.telegram.org/bot{tok}/{metodo}"
         if archivos:
-            r = _sesion.post(url, data=datos, files=archivos, timeout=timeout)
+            r = _http_session().post(url, data=datos, files=archivos, timeout=timeout)
         else:
-            r = _sesion.post(url, json=datos or {}, timeout=timeout)
+            r = _http_session().post(url, json=datos or {}, timeout=timeout)
         j = r.json()
     except Exception as e:                       # NO usar str(e): lleva el token en la URL
         _ultimo_error = f"red: {type(e).__name__}"
@@ -353,6 +360,11 @@ def _orden_de(texto: str, voz: bool = False) -> Optional[str]:
 
 _lock = threading.Lock()
 _hilos_ok = False
+_hilo_poll: Optional[threading.Thread] = None
+_hilo_ejecutor: Optional[threading.Thread] = None
+_hilo_voz: Optional[threading.Thread] = None
+_poll_wake = threading.Event()
+_PARAR = object()
 _offset = 0
 _sincronizado = False
 _nucleo_procesar = None                       # (texto, emit) -> {"exito","texto"}
@@ -401,8 +413,8 @@ def _vinculando() -> bool:
 # ─── ARRANQUE / SONDEO ────────────────────────────────────────────────────
 
 def arrancar() -> None:
-    """Arranque pesado de core_bridge: si hay token, se dejan listos los hilos (inactivos mientras net esté apagado)."""
-    if not _activo():
+    """Solo inicia el sondeo si el canal fue activado explícitamente."""
+    if not _activo() or not _token() or not (_net_on() or _vinculando()):
         return
     try:
         if os.path.isdir(_DIR_AUDIO):
@@ -413,20 +425,54 @@ def arrancar() -> None:
                     pass
     except OSError:
         pass
-    if _token():
-        _asegurar_hilos()
-    else:
-        log.info("Telegram: sin TELEGRAM_BOT_TOKEN en .env (módulo en reposo)")
+    _asegurar_hilos()
 
 
 def _asegurar_hilos() -> None:
-    global _hilos_ok
+    global _hilos_ok, _hilo_poll
     with _lock:
-        if _hilos_ok:
+        if _hilo_poll is not None and _hilo_poll.is_alive():
             return
-        for fn, nombre in ((_bucle, "sara-tg-poll"), (_ejecutor, "sara-tg-ejecutor"), (_voz_trabajador, "sara-tg-voz")):
-            threading.Thread(target=fn, name=nombre, daemon=True).start()
+        _poll_wake.clear()
+        _hilo_poll = threading.Thread(target=_bucle, name="sara-tg-poll", daemon=True)
         _hilos_ok = True
+        _hilo_poll.start()
+
+
+def _asegurar_trabajador(nombre: str) -> None:
+    global _hilo_ejecutor, _hilo_voz
+    with _lock:
+        if nombre == "sara-tg-ejecutor":
+            attr, fn = "_hilo_ejecutor", _ejecutor
+        else:
+            attr, fn = "_hilo_voz", _voz_trabajador
+        hilo = globals()[attr]
+        if hilo is None or not hilo.is_alive():
+            hilo = threading.Thread(target=fn, name=nombre, daemon=True)
+            globals()[attr] = hilo
+            hilo.start()
+
+
+def _vaciar_cola(cola: queue.Queue) -> None:
+    while True:
+        try:
+            cola.get_nowait()
+        except queue.Empty:
+            return
+
+
+def _detener_trabajadores() -> None:
+    with _lock:
+        trabajadores = ((_hilo_ejecutor, _cola), (_hilo_voz, _cola_voz))
+    for hilo, cola in trabajadores:
+        if hilo is not None and hilo.is_alive():
+            _vaciar_cola(cola)
+            cola.put_nowait(_PARAR)
+
+
+def _esperar_poll(segundos: float) -> None:
+    _poll_wake.wait(segundos)
+    _poll_wake.clear()
 
 
 def _sincronizar() -> bool:
@@ -453,46 +499,58 @@ def _esperar_sync(segundos: float = 8.0) -> bool:
 
 
 def _bucle() -> None:
-    global _offset, _sincronizado
-    while True:
-        try:
-            if not _activo() or not _token() or not (_net_on() or _vinculando()):
-                _sincronizado = False
-                time.sleep(1.0)
-                continue
-            if not _sincronizado:
-                if not _sincronizar():
-                    time.sleep(5)
-                continue
-            j = _api("getUpdates", {"offset": _offset, "timeout": 25,
-                                    "allowed_updates": ["message", "callback_query"]}, timeout=35)
-            if j is None:
-                time.sleep(5)                       # sin red
-                continue
-            if not j.get("ok"):
-                cod = j.get("codigo")
-                if cod == 409:                      # otra instancia de SARA (o un webhook) usa este bot
+    global _offset, _sincronizado, _hilos_ok, _hilo_poll
+    try:
+        while _activo() and _token() and (_net_on() or _vinculando()):
+            try:
+                if not _activo() or not _token() or not (_net_on() or _vinculando()):
                     _sincronizado = False
-                    time.sleep(15)
-                elif cod in (401, 404):             # token inválido o revocado
-                    time.sleep(30)
-                else:
-                    time.sleep(5)
-                continue
-            for u in j.get("result") or []:
-                _offset = max(_offset, int(u.get("update_id", 0)) + 1)
-                try:
-                    _atender(u)
-                except Exception as e:
-                    _log_error("_atender", e)
-        except Exception as e:
-            _log_error("_bucle", e)
-            time.sleep(5)
+                    return
+                if not _sincronizado:
+                    if not _sincronizar():
+                        _esperar_poll(5)
+                    continue
+                j = _api("getUpdates", {"offset": _offset, "timeout": 25,
+                                        "allowed_updates": ["message", "callback_query"]}, timeout=35)
+                if not (_net_on() or _vinculando()):
+                    _sincronizado = False
+                    return
+                if j is None:
+                    _esperar_poll(5)                # sin red
+                    continue
+                if not j.get("ok"):
+                    cod = j.get("codigo")
+                    if cod == 409:                  # otra instancia de SARA (o un webhook) usa este bot
+                        _sincronizado = False
+                        _esperar_poll(15)
+                    elif cod in (401, 404):         # token inválido o revocado
+                        _esperar_poll(30)
+                    else:
+                        _esperar_poll(5)
+                    continue
+                for u in j.get("result") or []:
+                    _offset = max(_offset, int(u.get("update_id", 0)) + 1)
+                    try:
+                        _atender(u)
+                    except Exception as e:
+                        _log_error("_atender", e)
+            except Exception as e:
+                _log_error("_bucle", e)
+                _esperar_poll(5)
+    finally:
+        _sincronizado = False
+        _detener_trabajadores()
+        with _lock:
+            if _hilo_poll is threading.current_thread():
+                _hilo_poll = None
+            _hilos_ok = _hilo_poll is not None and _hilo_poll.is_alive()
 
 
 # ─── ATENDER UN UPDATE ────────────────────────────────────────────────────
 
 def _atender(u: dict) -> None:
+    if not (_net_on() or _vinculando()):
+        return
     if u.get("callback_query"):
         return _atender_boton(u["callback_query"])
     m = u.get("message")
@@ -541,14 +599,15 @@ def _atender(u: dict) -> None:
 
 _AYUDA_BOT = ("Soy el canal de control de SARA. Escríbeme o mándame una nota de voz con lo que quieras hacer en tu "
               "laptop («abre Chrome», «¿cuánta batería tengo?», «crea un recordatorio…») o conversa conmigo.\n"
-              "Para apagar el equipo escribe «apaga la computadora»: te pido confirmación y un código que te llega a WhatsApp.\n"
-              "Para ver tu laptop: «quiero ver la pantalla». Para recibir un archivo: «mándame el pdf de la tarea» (piden tu código del autenticador).\n"
-              "Comandos del bot: /estado · /cancelar · /ayuda · /salud\n"
-              "Pantalla y seguridad: /pantalla · /donde · /foto · /bloquear\n"
-              "Archivos: /deshacer · /papelera\n"
-              "Modos: /modos · /modo NOMBRE (crear o borrar modos solo desde la ventana)\n"
-              "Ajustes: /alertas on|off · /descripcion on|off (IA lee la pantalla) · /verificacion on (apagarla solo desde la ventana)\n"
-              "Los ajustes (voz, audio, bocina…) se cambian desde la ventana de SARA con /telegram.")
+              "Puedes pedir acciones por lenguaje natural, incluida la pantalla en vivo de la laptop. Para recibir un "
+              "archivo o ver una captura/pantalla se pide el código del autenticador.\n"
+              "Comandos: /start · /help · /ayuda · /estado · /cancelar · /salud\n"
+              "Laptop: /pantalla · /donde · /foto · /bloquear · /deshacer · /papelera\n"
+              "Modos y ajustes: /modos · /modo NOMBRE · /alertas on|off · /descripcion on|off · /verificacion on\n"
+              "Crear/borrar modos y apagar la verificación solo desde la ventana de SARA. Las acciones de apagado "
+              "requieren confirmación y el código de seguridad configurado.\n"
+              "Los ajustes del canal (net, voz, audio, bocina, avisos y palabra de activación) se cambian desde la "
+              "ventana con /telegram.")
 
 
 def _atender_slash(texto: str) -> None:
@@ -643,6 +702,7 @@ def _encolar(orden: str, ts, voz: bool = False) -> None:
         orden = orden.rstrip(" .…")
         _responder(f"🎙️ Entendí: «{orden[:200]}»")
     try:
+        _asegurar_trabajador("sara-tg-ejecutor")
         _cola.put_nowait((orden, voz))
     except queue.Full:
         _responder("Sigo ocupada con tus órdenes anteriores; reintenta en un momento.")
@@ -701,7 +761,14 @@ def _ejecutor() -> None:
     el sondeo sigue leyendo tus botones."""
     global _conf
     while True:
-        orden, voz = _cola.get()
+        item = _cola.get()
+        if item is _PARAR:
+            if not _net_on():
+                return
+            continue
+        orden, voz = item
+        if not _net_on():
+            continue
         ok = False
         iniciado = False
         try:
@@ -1215,6 +1282,7 @@ def _atender_voz(m: dict) -> None:
         _responder("🎙️ Ese audio pesa demasiado; no lo procesé.")
         return
     try:
+        _asegurar_trabajador("sara-tg-voz")
         _cola_voz.put_nowait((v.get("file_id"), m.get("date")))
     except queue.Full:
         _responder("🎙️ Sigo transcribiendo notas anteriores; reenvía la tuya en un momento.")
@@ -1232,7 +1300,8 @@ def _descargar(file_id: str) -> Optional[str]:
     destino = os.path.join(_DIR_AUDIO, f"nota_{secrets.token_hex(6)}{ext}")
     tope = int(_c("TG_VOZ_MAX_BYTES", 3_000_000))
     try:
-        with requests.get(f"https://api.telegram.org/file/bot{_token()}/{ruta_remota}", stream=True, timeout=30) as r:
+        with _http_session().get(f"https://api.telegram.org/file/bot{_token()}/{ruta_remota}",
+                                 stream=True, timeout=30) as r:
             if r.status_code != 200:
                 return None
             total = 0
@@ -1317,7 +1386,14 @@ def _procesar_nota(file_id: str, ts) -> None:
 def _voz_trabajador() -> None:
     """Hilo propio: transcribir tarda segundos y no debe frenar el sondeo (ahí se leen tus botones)."""
     while True:
-        file_id, ts = _cola_voz.get()
+        item = _cola_voz.get()
+        if item is _PARAR:
+            if not _net_on():
+                return
+            continue
+        file_id, ts = item
+        if not _net_on():
+            continue
         try:
             _procesar_nota(file_id, ts)
         except Exception as e:
@@ -1375,9 +1451,9 @@ def _cmd_vincular() -> Tuple[bool, str]:
     if not j or not j.get("ok"):
         return False, f"No pude contactar a Telegram con ese token ({_ultimo_error or 'sin respuesta'}). Revisa .env y tu internet."
     _bot_user = str((j.get("result") or {}).get("username") or "")
-    _asegurar_hilos()
     _vinculo = {"codigo": f"{secrets.randbelow(10 ** 8):08d}", "expira": time.time() + 300, "intentos": 0}
     _sincronizado = False
+    _asegurar_hilos()
     _esperar_sync(8)                                         # ya escuchando antes de que escribas el código
     previo = " (esto reemplazará a la cuenta ya vinculada)" if _owner_id() else ""
     return True, (f"Código de vinculación: {_vinculo['codigo']} (válido 5 min, un solo uso){previo}.\n"
@@ -1461,14 +1537,17 @@ def _set_net(on: bool) -> Tuple[bool, str]:
     global _sincronizado
     if not on:
         _kv_set("net", "0")
+        _sincronizado = False
+        _poll_wake.set()
+        _detener_trabajadores()
         return True, "Canal de Telegram apagado: ya no obedezco órdenes por ahí."
     if not _token():
         return False, _AYUDA_TOKEN
     if _owner_id() is None:
         return False, "Primero vincula tu cuenta con /telegram vincular."
-    _asegurar_hilos()
     _sincronizado = False                                    # al encender se salta lo anterior: nada viejo se ejecuta
     _kv_set("net", "1")
+    _asegurar_hilos()
     if not _esperar_sync(8):
         return False, f"Quedó activado pero no pude conectar con Telegram ({_ultimo_error or 'sin respuesta'}). Reviso solo cada pocos segundos."
     bloq = ", ".join(_c("TG_CATEGORIAS_BLOQUEADAS", ("COMANDO_SISTEMA", "ELIMINAR_ARCHIVO"))) or "ninguna"
