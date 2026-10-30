@@ -14,7 +14,7 @@
 #   · nivel «fresca»: apagar/reiniciar/suspender/hibernar y APAGAR la verificación → huella cada vez
 #   · laptop → celular: SIN huella por defecto; solo lo que pongas en config.CEL_HUELLA_CAPS (p. ej. ("llamar", "sms")) la pide EN el celular
 CELULAR_VERSION = "v2"
-import base64, hashlib, hmac, importlib, json, logging, os, queue, re, secrets, shutil, socket, subprocess, sys, threading, time, unicodedata, uuid
+import base64, hashlib, hmac, importlib, json, logging, math, os, queue, re, secrets, shutil, socket, struct, subprocess, sys, threading, time, unicodedata, uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Dict, List, Optional, Tuple
@@ -54,6 +54,129 @@ def _mod(nombre: str):
         return None
 
 
+def _interaccion_escritorio(accion: str, x: float, y: float, dx: float = 0, dy: float = 0) -> bool:
+    if (os.name != "nt" or accion not in ("toque", "clic_derecho", "desplazar")
+            or not 0 <= x <= 1 or not 0 <= y <= 1):
+        return False
+    try:
+        import ctypes
+        usuario = ctypes.windll.user32
+        usuario.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        usuario.SetCursorPos.restype = ctypes.c_bool
+        usuario.mouse_event.argtypes = [
+            ctypes.c_uint, ctypes.c_int, ctypes.c_int, ctypes.c_uint, ctypes.c_size_t
+        ]
+        usuario.mouse_event.restype = None
+        ancho, alto = usuario.GetSystemMetrics(0), usuario.GetSystemMetrics(1)
+        if ancho <= 0 or alto <= 0:
+            return False
+        if not usuario.SetCursorPos(round(x * (ancho - 1)), round(y * (alto - 1))):
+            return False
+        if accion == "desplazar":
+            if (isinstance(dx, bool) or isinstance(dy, bool) or not isinstance(dx, (int, float))
+                    or not isinstance(dy, (int, float)) or not -1 <= dx <= 1 or not -1 <= dy <= 1):
+                return False
+            if abs(dy) >= abs(dx):
+                usuario.mouse_event(0x0800, 0, 0, ctypes.c_uint32(round(-dy * 120 * 4)).value, 0)
+            else:
+                usuario.mouse_event(0x1000, 0, 0, ctypes.c_uint32(round(dx * 120 * 4)).value, 0)
+        else:
+            abajo, arriba = (0x0008, 0x0010) if accion == "clic_derecho" else (0x0002, 0x0004)
+            usuario.mouse_event(abajo, 0, 0, 0, 0)
+            usuario.mouse_event(arriba, 0, 0, 0, 0)
+        log.info("interacción remota en laptop: %s en (%.3f, %.3f)", accion, x, y)
+        return True
+    except Exception:
+        log.exception("no pude enviar la interacción remota a la laptop")
+        return False
+
+
+def _clic_escritorio(x: float, y: float) -> bool:
+    return _interaccion_escritorio("toque", x, y)
+
+
+def _mostrar_escritorio() -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        usuario = ctypes.windll.user32
+        usuario.keybd_event.argtypes = [
+            ctypes.c_ubyte, ctypes.c_ubyte, ctypes.c_uint, ctypes.c_size_t
+        ]
+        usuario.keybd_event.restype = None
+        tecla_win, tecla_d, soltar = 0x5B, 0x44, 0x0002
+        usuario.keybd_event(tecla_win, 0, 0, 0)
+        usuario.keybd_event(tecla_d, 0, 0, 0)
+        usuario.keybd_event(tecla_d, 0, soltar, 0)
+        usuario.keybd_event(tecla_win, 0, soltar, 0)
+        return True
+    except Exception:
+        log.exception("no pude mostrar el escritorio de Windows")
+        return False
+
+
+def _leer_deslizamiento(texto: str) -> Optional[Tuple[float, float, float, float]]:
+    partes = texto.split("|")
+    if len(partes) != 5 or partes[0] != "DESLIZAR":
+        return None
+    try:
+        x, y, dx, dy = map(float, partes[1:])
+    except ValueError:
+        return None
+    if (not all(math.isfinite(v) for v in (x, y, dx, dy))
+            or not 0 <= x <= 1 or not 0 <= y <= 1
+            or not -1 <= dx <= 1 or not -1 <= dy <= 1
+            or (dx == 0 and dy == 0)):
+        return None
+    return x, y, dx, dy
+
+
+def _leer_arrastre(texto: str) -> Optional[Tuple[float, float, float, float]]:
+    partes = texto.split("|")
+    if len(partes) != 5 or partes[0] != "ARRASTRAR":
+        return None
+    try:
+        x, y, destino_x, destino_y = map(float, partes[1:])
+    except ValueError:
+        return None
+    if (not all(math.isfinite(v) for v in (x, y, destino_x, destino_y))
+            or any(not 0 <= v <= 1 for v in (x, y, destino_x, destino_y))
+            or (x == destino_x and y == destino_y)):
+        return None
+    return x, y, destino_x, destino_y
+
+
+def _procesar_control_visor(dev: str, stream_id: str, texto: str) -> bool:
+    vivo = _mod("pantalla_celular")
+    if vivo is None or not vivo.control_activo(dev, stream_id):
+        return False
+    if texto == "INICIO":
+        accion = {"tipo": "pantalla_celular", "accion": "inicio", "stream_id": stream_id}
+    elif texto.startswith("DESLIZAR|"):
+        movimiento = _leer_deslizamiento(texto)
+        if movimiento is None:
+            return False
+        x, y, dx, dy = movimiento
+        accion = {
+            "tipo": "pantalla_celular", "accion": "desplazar", "stream_id": stream_id,
+            "x": x, "y": y, "dx": dx, "dy": dy,
+        }
+    elif texto.startswith("ARRASTRAR|"):
+        movimiento = _leer_arrastre(texto)
+        if movimiento is None:
+            return False
+        x, y, destino_x, destino_y = movimiento
+        accion = {
+            "tipo": "pantalla_celular", "accion": "arrastrar", "stream_id": stream_id,
+            "x": x, "y": y, "destino_x": destino_x, "destino_y": destino_y,
+        }
+    else:
+        return False
+    _cola(dev).put(accion)
+    return True
+
+
 # ─── ESTADO ───────────────────────────────────────────────────────────────
 _lock = threading.RLock()
 _ctx = threading.local()                    # dev / adjuntos / error de la orden que se está procesando en este hilo
@@ -74,6 +197,8 @@ _retos: Dict[str, Tuple[str, float]] = {}   # reto -> (dev, creado)
 _auth: Dict[str, float] = {}                # dev -> fin de la ventana de huella
 _pend: List[dict] = []                      # avisos para el celular mientras estaba desconectado
 _foto_pedida: Dict[str, float] = {}         # dev -> cuándo pidió la laptop una foto (la vista previa llega sin pedir huella)
+_visores_pantalla_celular: Dict[str, subprocess.Popen] = {}
+_locks_visores_pantalla_celular: Dict[str, threading.Lock] = {}
 
 
 def registrar_nucleo(fn_procesar: Callable, fn_resolver: Callable) -> None:
@@ -234,6 +359,9 @@ def _nivel_auth(texto: str) -> Optional[str]:
                 return "ventana"
         except Exception:
             return "ventana"
+    vivo = _mod("pantalla_vivo")
+    if vivo is not None and vivo.interpretar(texto):
+        return "ventana"
     return None
 
 
@@ -264,7 +392,9 @@ class _H(BaseHTTPRequestHandler):
 
     def _leer(self) -> str:
         n = int(self.headers.get("Content-Length") or 0)
-        tope = int(_c("CEL_MAX_CUERPO_SUBIDA", 1_500_000)) if self.path.split("?")[0] == "/subida" else 65536
+        ruta = self.path.split("?")[0]
+        tope = int(_c("CEL_MAX_CUERPO_SUBIDA", 1_500_000)) if ruta == "/subida" else \
+            int(_c("CEL_PANTALLA_CELULAR_MAX_BYTES", 1_000_000)) * 2 if ruta == "/pantalla-celular" else 65536
         if n > tope:
             raise ValueError("cuerpo demasiado grande")
         return self.rfile.read(n).decode("utf-8") if n else ""
@@ -313,6 +443,10 @@ class _H(BaseHTTPRequestHandler):
                 return self._responder(401, {"error": "firma"})
             if ruta == "/poll":
                 return self._poll(dev)
+            if ruta == "/pantalla-vivo":
+                return self._pantalla_vivo(dev, cuerpo)
+            if ruta == "/pantalla-celular":
+                return self._pantalla_celular(dev, cuerpo)
             if ruta == "/send":
                 return self._send(dev, cuerpo)
             if ruta == "/archivo":
@@ -380,9 +514,153 @@ class _H(BaseHTTPRequestHandler):
                 q.put(m)
             raise
 
+    def _pantalla_vivo(self, dev: str, cuerpo: str) -> None:
+        d = json.loads(cuerpo or "{}")
+        sid = str(d.get("stream") or "")
+        vivo = _mod("pantalla_vivo")
+        evento = vivo.sesion(dev, sid) if vivo and re.fullmatch(r"[0-9a-f]{10}", sid) else None
+        if evento is None:
+            return self._responder(404, {"error": "sesion"}, dev)
+        if transfer is None or not transfer.cripto_disponible():
+            vivo.cerrar(dev, sid)
+            return self._responder(503, {"error": "cifrado_no_disponible"}, dev)
+        pantalla = _mod("pantalla")
+        capturar = getattr(pantalla, "capturar", None) if pantalla else None
+        if capturar is None:
+            vivo.cerrar(dev, sid)
+            return self._responder(503, {"error": "captura_no_disponible"}, dev)
+        metadatos = vivo.metadatos(dev, sid) or {"fps": 2, "escala": 2}
+        imagen, motivo = capturar(escala=metadatos["escala"])
+        if not imagen:
+            vivo.cerrar(dev, sid)
+            return self._responder(503, {"error": motivo or "captura_fallida"}, dev)
+
+        ts = str(int(time.time()))
+        respuesta = f"pantalla-vivo|{sid}"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-sara-screen-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.send_header("X-Sara-Ts", ts)
+        self.send_header("X-Sara-Sig", _firma(_dispositivos[dev]["secret"], dev, ts, respuesta))
+        self.end_headers()
+        self.close_connection = True
+        tam_max = 6 * 1024 * 1024
+        indice = 0
+        try:
+            while not evento.is_set():
+                if len(imagen) > tam_max:
+                    log.warning("pantalla en vivo: fotograma sobre el límite (%d bytes)", len(imagen))
+                    break
+                cifrado = transfer.cifrar_trozo(
+                    _dispositivos[dev]["secret"], sid, "down", indice, False, imagen
+                )
+                self.wfile.write(struct.pack(">QI", indice, len(cifrado)))
+                self.wfile.write(cifrado)
+                self.wfile.flush()
+                indice += 1
+                metadatos = vivo.metadatos(dev, sid)
+                if metadatos is None:
+                    break
+                intervalo = 1.0 / metadatos["fps"]
+                if metadatos["fps"] == 2:
+                    intervalo = max(
+                        intervalo,
+                        max(0.25, min(2.0, float(_c("CEL_PANTALLA_VIVO_INTERVALO_S", 0.6)))),
+                    )
+                if evento.wait(intervalo):
+                    break
+                imagen, motivo = capturar(escala=metadatos["escala"])
+                if not imagen:
+                    log.info("pantalla en vivo detenida: %s", motivo or "captura no disponible")
+                    _cola(dev).put({"tipo": "aviso", "id": uuid.uuid4().hex[:10],
+                                    "texto": "La captura de pantalla en vivo se detuvo: " +
+                                             str(motivo or "no está disponible.")[:200]})
+                    break
+        except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
+            log.debug("pantalla en vivo desconectada por el celular")
+        except Exception:
+            log.exception("falló la transmisión de pantalla en vivo")
+        finally:
+            vivo.cerrar(dev, sid)
+
+    def _pantalla_celular(self, dev: str, cuerpo: str) -> None:
+        vivo = _mod("pantalla_celular")
+        if vivo is None or not _c("CEL_PANTALLA_CELULAR_ACTIVA", True):
+            return self._responder(403, {"ok": False, "error": "desactivada"}, dev)
+        d = json.loads(cuerpo or "{}")
+        sid = str(d.get("stream") or "")
+        if not re.fullmatch(r"[0-9a-f]{10}", sid):
+            return self._responder(400, {"ok": False, "error": "sesion"}, dev)
+        if d.get("accion") == "fin":
+            actual = vivo.detener(dev, sid)
+            if actual == sid:
+                _cerrar_visor_pantalla_celular(dev)
+            return self._responder(200, {"ok": actual == sid}, dev)
+        indice = d.get("indice")
+        try:
+            indice = int(indice)
+        except (TypeError, ValueError):
+            return self._responder(400, {"ok": False, "error": "indice"}, dev)
+        if transfer is None or not transfer.cripto_disponible():
+            return self._responder(503, {"ok": False, "error": "cifrado_no_disponible"}, dev)
+        try:
+            if not vivo.activa(dev, sid):
+                return self._responder(404, {"ok": False, "error": "sesion"}, dev)
+            cifrado = base64.b64decode(str(d.get("fotograma") or ""), validate=True)
+            if not cifrado or len(cifrado) > int(_c("CEL_PANTALLA_CELULAR_MAX_BYTES", 1_000_000)) + 16:
+                raise ValueError("fotograma fuera de límite")
+            imagen = transfer.descifrar_trozo(_dispositivos[dev]["secret"], sid, "up", indice, False, cifrado)
+            if not imagen.startswith(b"\xff\xd8") or not imagen.endswith(b"\xff\xd9"):
+                raise ValueError("fotograma no es JPEG")
+        except Exception as e:
+            log.warning("pantalla celular: fotograma rechazado para %s (%s)", dev, type(e).__name__)
+            return self._responder(400, {"ok": False, "error": "fotograma_invalido"}, dev)
+        if not vivo.aceptar_fotograma(dev, sid, indice, imagen):
+            return self._responder(409, {"ok": False, "error": "sesion_o_indice"}, dev)
+        _enviar_fotograma_visor_pantalla_celular(dev, imagen)
+        self._responder(200, {"ok": True}, dev)
+
     def _send(self, dev: str, cuerpo: str) -> None:
         d = json.loads(cuerpo or "{}")
         tipo = d.get("tipo")
+        if tipo == "pantalla_control":
+            vivo = _mod("pantalla_vivo")
+            sid = str(d.get("stream") or "")
+            if vivo is None or vivo.metadatos(dev, sid) is None:
+                return self._responder(404, {"ok": False, "error": "sesion"}, dev)
+            accion = d.get("accion")
+            if accion == "control":
+                activo = d.get("activo")
+                ok = vivo.cambiar_control(dev, sid, activo)
+                return self._responder(200 if ok else 400, {"ok": ok}, dev)
+            if accion == "perfil":
+                fps = d.get("fps")
+                ok = vivo.cambiar_perfil(dev, sid, fps)
+                return self._responder(200 if ok else 400, {"ok": ok}, dev)
+            if accion == "inicio":
+                if not vivo.control_activo(dev, sid):
+                    return self._responder(403, {"ok": False, "error": "control_desactivado"}, dev)
+                ok = _mostrar_escritorio()
+                return self._responder(200 if ok else 503, {"ok": ok}, dev)
+            if accion in ("toque", "clic_derecho", "desplazar"):
+                x, y = d.get("x"), d.get("y")
+                if not vivo.control_activo(dev, sid):
+                    return self._responder(403, {"ok": False, "error": "control_desactivado"}, dev)
+                if (isinstance(x, bool) or not isinstance(x, (int, float))
+                        or isinstance(y, bool) or not isinstance(y, (int, float))
+                        or not 0 <= x <= 1 or not 0 <= y <= 1):
+                    return self._responder(400, {"ok": False, "error": "coordenadas"}, dev)
+                if accion == "desplazar":
+                    dx, dy = d.get("dx", 0), d.get("dy", 0)
+                    if (isinstance(dx, bool) or isinstance(dy, bool) or not isinstance(dx, (int, float))
+                            or not isinstance(dy, (int, float)) or not -1 <= dx <= 1 or not -1 <= dy <= 1):
+                        return self._responder(400, {"ok": False, "error": "desplazamiento"}, dev)
+                    ok = _interaccion_escritorio(accion, float(x), float(y), float(dx), float(dy))
+                else:
+                    ok = _interaccion_escritorio(accion, float(x), float(y))
+                return self._responder(200 if ok else 503, {"ok": ok}, dev)
+            return self._responder(400, {"ok": False, "error": "accion"}, dev)
         if tipo == "resultado":
             slot = _esperando.get(str(d.get("id")))
             if slot:
@@ -392,6 +670,32 @@ class _H(BaseHTTPRequestHandler):
         if tipo == "evento":
             with _lock:
                 _estado.setdefault(dev, {}).update({k: d[k] for k in ("bateria", "cargando", "red") if k in d})
+            return self._responder(200, {"ok": True}, dev)
+        if tipo == "pantalla_control_estado":
+            vivo = _mod("pantalla_celular")
+            sid = str(d.get("stream_id") or "")
+            sesion_activa = vivo.activa(dev, sid) if vivo is not None else False
+            activo = d.get("activo")
+            accesibilidad = d.get("accesibilidad")
+            solicitado_activo = d.get("solicitado_activo")
+            if not _c("CEL_PANTALLA_CONTROL_AVISO_ACCESIBILIDAD", True):
+                return self._responder(403, {"ok": False, "error": "funcion_desactivada"}, dev)
+            if type(activo) is not bool or type(accesibilidad) is not bool or type(solicitado_activo) is not bool:
+                return self._responder(400, {"ok": False, "error": "estado"}, dev)
+            if not sesion_activa:
+                return self._responder(404, {"ok": False, "error": "sesion"}, dev)
+            if activo and not accesibilidad:
+                activo = False
+            if not vivo.cambiar_control(dev, sid, activo):
+                return self._responder(409, {"ok": False, "error": "sesion"}, dev)
+            mensaje = (
+                "Control remoto no activado: habilita SARA en Ajustes → Accesibilidad del celular."
+                if solicitado_activo and not accesibilidad else
+                "Control remoto activado."
+                if activo else
+                "Control remoto desactivado."
+            )
+            _enviar_estado_control_visor(dev, sid, activo, mensaje)
             return self._responder(200, {"ok": True}, dev)
         if tipo == "confirmacion":
             if _resolver is not None:
@@ -449,6 +753,43 @@ class _H(BaseHTTPRequestHandler):
             pend = _exigir_auth(dev, d, texto, nivel)
             if pend:
                 return self._responder(200, pend, dev)
+
+        vivo = _mod("pantalla_vivo")
+        intencion_vivo = vivo.resolver_intencion(texto, "celular") if vivo else None
+        if intencion_vivo:
+            direccion, accion_vivo = intencion_vivo
+            if direccion == "celular-a-laptop":
+                texto_pantalla = ("activa la pantalla en vivo de mi celular" if accion_vivo == "iniciar"
+                                  else "detén la pantalla en vivo de mi celular")
+                ok, mensaje = ejecutar(texto_pantalla, "celular")
+                return self._responder(200, {"exito": bool(ok), "texto": str(mensaje),
+                                             "adjuntos": []}, dev)
+        else:
+            accion_vivo = None
+        if accion_vivo == "iniciar":
+            sid, motivo = vivo.iniciar(dev, solicitado_desde="celular")
+            if sid:
+                return self._responder(200, {
+                    "exito": True,
+                    "texto": "Abriendo la pantalla en vivo. Cierra el visor o di «detén la pantalla en vivo» para terminar.",
+                    "pantalla_en_vivo": True,
+                    "stream_id": sid,
+                    "solicitado_desde": "celular",
+                    "adjuntos": [],
+                }, dev)
+            return self._responder(200, {"exito": False, "texto": motivo, "adjuntos": []}, dev)
+        if accion_vivo == "detener":
+            detenida = vivo.detener(dev)
+            texto_respuesta = "Pantalla en vivo detenida." if detenida else "No hay una pantalla en vivo activa."
+            if detenida:
+                _cola(dev).put({"tipo": "pantalla_vivo", "accion": "detener"})
+            return self._responder(200, {
+                "exito": True,
+                "texto": texto_respuesta,
+                "pantalla_en_vivo": False,
+                "solicitado_desde": "celular",
+                "adjuntos": [],
+            }, dev)
 
         def emit(tipo_e, **datos):
             if tipo_e == "solicitud_confirmacion":
@@ -618,6 +959,12 @@ def interpretar(texto: str) -> Optional[dict]:
     n = _plano(texto)
     if not n or len(n.split()) > 30 or (texto or "").lstrip().startswith("/"):
         return None
+    pantalla_celular = _mod("pantalla_celular")
+    if pantalla_celular is not None:
+        accion = pantalla_celular.interpretar(texto)
+        if accion:
+            return {"cap": {"id": f"pantalla_celular_vivo_{accion}", "nodo": "celular",
+                            "riesgo": "medio", "confirmar": False}, "texto": texto}
     base = _sin_archivos(texto)                      # sin nombres de archivo: «celular.py» no es el celular
     cap = clasificar(texto)
     if cap is None:
@@ -646,6 +993,10 @@ def interpretar(texto: str) -> Optional[dict]:
 
 
 def es_comando(texto: str) -> bool:
+    if "pantalla" in _plano(texto).split():
+        vivo = _mod("pantalla_vivo")
+        if vivo and vivo.interpretar(texto):
+            return True
     return interpretar(texto) is not None
 
 
@@ -672,13 +1023,285 @@ def _enviar_y_esperar(dev: str, texto: str, confirmado: bool, espera: float = 25
     return ok, txt
 
 
+def _abrir_visor_pantalla_celular(dev: str, stream_id: str, solicitado_desde: str = "laptop") -> bool:
+    visor = os.path.join(os.path.dirname(os.path.abspath(__file__)), "visor_pantalla_celular.py")
+    if not os.path.isfile(visor):
+        log.error("pantalla celular: falta visor_pantalla_celular.py")
+        return False
+    with _lock:
+        anterior = _visores_pantalla_celular.get(dev)
+        if anterior is not None and anterior.poll() is None:
+            return True
+        try:
+            proceso = subprocess.Popen(
+                [sys.executable, visor, solicitado_desde],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=0,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except OSError:
+            log.exception("pantalla celular: no pude abrir la ventana")
+            return False
+        _visores_pantalla_celular[dev] = proceso
+        _locks_visores_pantalla_celular[dev] = threading.Lock()
+
+    listo = threading.Event()
+    inicio_ok = {"valor": False}
+
+    def vigilar():
+        try:
+            for linea in proceso.stdout:
+                texto = linea.decode("utf-8", errors="replace").strip()
+                if texto == "LISTO":
+                    inicio_ok["valor"] = True
+                    listo.set()
+                elif texto.startswith("ERROR|"):
+                    log.error("visor de pantalla del celular: %s", texto[6:])
+                    listo.set()
+                elif texto.startswith("CONTROL|"):
+                    partes = texto.split("|")
+                    activo = len(partes) == 2 and partes[1] == "1"
+                    vivo = _mod("pantalla_celular")
+                    if vivo is not None and vivo.cambiar_control(dev, stream_id, activo):
+                        _cola(dev).put({"tipo": "pantalla_celular", "accion": "control",
+                                        "stream_id": stream_id, "activo": activo,
+                                        "accesibilidad_aviso": bool(_c(
+                                            "CEL_PANTALLA_CONTROL_AVISO_ACCESIBILIDAD", True
+                                        ))})
+                    else:
+                        _enviar_estado_control_visor(
+                            dev, stream_id, False,
+                            "La sesión de pantalla del celular ya no está activa.",
+                        )
+                elif texto.startswith("PERFIL|"):
+                    partes = texto.split("|")
+                    try:
+                        fps = int(partes[1]) if len(partes) == 2 else -1
+                    except ValueError:
+                        fps = -1
+                    vivo = _mod("pantalla_celular")
+                    if vivo is not None and vivo.cambiar_perfil(dev, stream_id, fps):
+                        _cola(dev).put({"tipo": "pantalla_celular", "accion": "perfil",
+                                        "stream_id": stream_id, "fps": fps})
+                elif texto.startswith("TOQUE|"):
+                    partes = texto.split("|")
+                    try:
+                        x, y = float(partes[1]), float(partes[2])
+                    except (IndexError, ValueError):
+                        continue
+                    vivo = _mod("pantalla_celular")
+                    if (len(partes) == 3 and vivo is not None and vivo.control_activo(dev, stream_id)
+                            and math.isfinite(x) and math.isfinite(y) and 0 <= x <= 1 and 0 <= y <= 1):
+                        _cola(dev).put({"tipo": "pantalla_celular", "accion": "toque",
+                                        "stream_id": stream_id, "x": x, "y": y})
+                elif texto.startswith("DESLIZAR|"):
+                    _procesar_control_visor(dev, stream_id, texto)
+                elif texto.startswith("ARRASTRAR|"):
+                    _procesar_control_visor(dev, stream_id, texto)
+                elif texto == "INICIO":
+                    _procesar_control_visor(dev, stream_id, texto)
+                elif texto == "CERRADO":
+                    vivo = _mod("pantalla_celular")
+                    if vivo is not None:
+                        vivo.detener(dev, stream_id)
+                    _cola(dev).put({"tipo": "pantalla_celular", "accion": "detener", "stream_id": stream_id})
+                    break
+            proceso.wait(timeout=5)
+        except Exception:
+            log.exception("visor de pantalla del celular terminó con error")
+        finally:
+            listo.set()
+            vivo = _mod("pantalla_celular")
+            sid = vivo.detener(dev, stream_id) if vivo is not None else None
+            if sid:
+                _cola(dev).put({"tipo": "pantalla_celular", "accion": "detener", "stream_id": sid})
+            with _lock:
+                if _visores_pantalla_celular.get(dev) is proceso:
+                    _visores_pantalla_celular.pop(dev, None)
+                    _locks_visores_pantalla_celular.pop(dev, None)
+
+    threading.Thread(target=vigilar, name="sara-visor-pantalla-celular", daemon=True).start()
+    if not listo.wait(8.0):
+        _cerrar_visor_pantalla_celular(dev)
+        log.error("visor de pantalla del celular no confirmó su inicio")
+        return False
+    return inicio_ok["valor"]
+
+
+def _enviar_fotograma_visor_pantalla_celular(dev: str, imagen: bytes) -> None:
+    with _lock:
+        proceso = _visores_pantalla_celular.get(dev)
+        candado = _locks_visores_pantalla_celular.get(dev)
+    if proceso is None or proceso.stdin is None or candado is None or proceso.poll() is not None:
+        return
+    try:
+        linea = base64.b64encode(imagen) + b"\n"
+        with candado:
+            proceso.stdin.write(linea)
+            proceso.stdin.flush()
+    except (BrokenPipeError, OSError):
+        log.warning("visor de pantalla del celular no acepta más fotogramas")
+
+
+def _enviar_estado_control_visor(dev: str, sid: str, activo: bool, mensaje: str) -> None:
+    vivo = _mod("pantalla_celular")
+    if vivo is None or not vivo.activa(dev, sid):
+        return
+    with _lock:
+        proceso = _visores_pantalla_celular.get(dev)
+        candado = _locks_visores_pantalla_celular.get(dev)
+    if proceso is None or proceso.stdin is None or candado is None or proceso.poll() is not None:
+        return
+    texto = base64.urlsafe_b64encode(mensaje[:300].encode("utf-8"))
+    linea = b"CONTROL_ESTADO|" + (b"1" if activo else b"0") + b"|" + texto + b"\n"
+    try:
+        with candado:
+            proceso.stdin.write(linea)
+            proceso.stdin.flush()
+    except (BrokenPipeError, OSError):
+        log.warning("visor de pantalla del celular no acepta el estado del control remoto")
+
+
+def _cerrar_visor_pantalla_celular(dev: str) -> None:
+    with _lock:
+        proceso = _visores_pantalla_celular.get(dev)
+        candado = _locks_visores_pantalla_celular.get(dev)
+    if proceso is None or proceso.stdin is None or candado is None or proceso.poll() is not None:
+        return
+    try:
+        with candado:
+            proceso.stdin.write(b"CERRAR\n")
+            proceso.stdin.flush()
+    except (BrokenPipeError, OSError):
+        log.debug("el visor de pantalla del celular ya se había cerrado")
+
+
+def _solicitar_pantalla_celular(
+    dev: str, accion: str, sid: str, solicitado_desde: str = "laptop"
+) -> Tuple[bool, str]:
+    mid = uuid.uuid4().hex[:10]
+    slot = {"ev": threading.Event(), "res": None}
+    _esperando[mid] = slot
+    _cola(dev).put({"tipo": "pantalla_celular", "id": mid, "accion": accion,
+                    "stream_id": sid, "solicitado_desde": solicitado_desde})
+    llego = slot["ev"].wait(30.0)
+    _esperando.pop(mid, None)
+    if not llego or not slot["res"]:
+        return False, "El celular no confirmó la solicitud de pantalla en vivo."
+    return bool(slot["res"].get("ok")), str(slot["res"].get("texto", ""))
+
+
+def comando_pantalla_vivo(arg: str) -> Tuple[bool, str]:
+    partes = (arg or "").strip().lower().split()
+    if len(partes) != 2 or partes[0] not in ("laptop-a-celular", "celular-a-laptop") \
+            or partes[1] not in ("on", "off", "estado"):
+        return False, ("Uso: /pantalla-vivo laptop-a-celular on|off|estado · "
+                       "/pantalla-vivo celular-a-laptop on|off|estado")
+    direccion, accion = partes
+    dev = _dispositivo_activo()
+    if dev is None:
+        return False, "Tu celular no está conectado ahora (¿sin internet o la app SARA cerrada?)."
+    if direccion == "celular-a-laptop":
+        if not _c("CEL_PANTALLA_CELULAR_ACTIVA", True):
+            return False, "La recepción de pantalla en vivo desde el celular está desactivada."
+        vivo = _mod("pantalla_celular")
+        if vivo is None:
+            return False, "La recepción de pantalla en vivo no está disponible."
+        activa = vivo.activa_dispositivo(dev)
+        if accion == "estado":
+            return True, f"Pantalla del celular hacia la laptop: {'ACTIVA' if activa else 'apagada'}."
+        if accion == "on":
+            if activa:
+                return True, "La pantalla del celular ya está activa en la laptop."
+            return ejecutar("activa la pantalla en vivo de mi celular")
+        if not activa:
+            return True, "La pantalla del celular ya está apagada."
+        return ejecutar("detén la pantalla en vivo de mi celular")
+
+    vivo = _mod("pantalla_vivo")
+    if vivo is None or not _c("CEL_PANTALLA_VIVO_ACTIVA", True):
+        return False, "La transmisión de pantalla de la laptop está desactivada."
+    if accion == "on" and (transfer is None or not transfer.cripto_disponible()):
+        return False, "La pantalla en vivo necesita el cifrado cryptography disponible en la laptop."
+    activa = vivo.activa(dev)
+    if accion == "estado":
+        return True, f"Pantalla de la laptop hacia el celular: {'ACTIVA' if activa else 'apagada'}."
+    if accion == "on":
+        if activa:
+            return True, "La pantalla de la laptop ya está activa para este celular."
+        sid, motivo = vivo.iniciar(dev, solicitado_desde="laptop")
+        if sid is None:
+            return False, motivo
+        _cola(dev).put({
+            "tipo": "pantalla_vivo",
+            "id": uuid.uuid4().hex[:10],
+            "accion": "iniciar",
+            "stream_id": sid,
+            "solicitado_desde": "laptop",
+        })
+        return True, ("Solicitud enviada al celular. Toca la notificación de SARA para abrir el visor; "
+                      "la transmisión empieza al conectarse.")
+    if not activa:
+        return True, "La pantalla de la laptop ya está apagada para el celular."
+    vivo.detener(dev)
+    _cola(dev).put({
+        "tipo": "pantalla_vivo",
+        "id": uuid.uuid4().hex[:10],
+        "accion": "detener",
+    })
+    return True, "Transmisión de la laptop detenida."
+
+
 def ejecutar(texto: str, origen: Optional[str] = None, confirmar: Optional[Callable] = None) -> Tuple[bool, str]:
     """confirmar(pregunta) -> bool: lo da core_bridge (modal de la ventana). Nunca lanza."""
     try:
+        accion_vivo = None
+        if "pantalla" in _plano(texto).split():
+            pantalla_vivo = _mod("pantalla_vivo")
+            accion_vivo = pantalla_vivo.interpretar(texto) if pantalla_vivo else None
+        if accion_vivo:
+            return comando_pantalla_vivo(
+                f"laptop-a-celular {'on' if accion_vivo == 'iniciar' else 'off'}"
+            )
         iv = interpretar(texto)
         if iv is None:
             return False, "No entendí qué hacer en el celular."
         cap = iv["cap"]
+        if cap["id"] in ("pantalla_celular_vivo_iniciar", "pantalla_celular_vivo_detener"):
+            vivo = _mod("pantalla_celular")
+            if vivo is None:
+                return False, "La recepción de pantalla en vivo no está disponible."
+            if cap["id"].endswith("_iniciar") and (transfer is None or not transfer.cripto_disponible()):
+                return False, "La pantalla en vivo necesita el cifrado cryptography disponible en la laptop."
+            dev = _dispositivo_activo()
+            if dev is None:
+                return False, "Tu celular no está conectado ahora (¿sin internet o la app SARA cerrada?)."
+            if cap["id"].endswith("_iniciar"):
+                sid, motivo = vivo.iniciar(
+                    dev, solicitado_desde=origen if origen in ("laptop", "celular") else "laptop"
+                )
+                if sid is None:
+                    return False, motivo
+                if not _abrir_visor_pantalla_celular(dev, sid, origen or "laptop"):
+                    vivo.detener(dev)
+                    return False, "No pude abrir el visor de pantalla en la laptop."
+                ok, mensaje = _solicitar_pantalla_celular(
+                    dev, "iniciar", sid,
+                    solicitado_desde=origen if origen in ("laptop", "celular") else "laptop",
+                )
+                if not ok:
+                    vivo.detener(dev)
+                    _cerrar_visor_pantalla_celular(dev)
+                    return False, mensaje or "No pude solicitar el permiso de captura en el celular."
+                return True, mensaje or "Solicitud enviada al celular. Acepta allí el aviso y el permiso de Android para iniciar la transmisión."
+            sid = vivo.detener(dev)
+            if sid is None:
+                return True, "No hay una transmisión de pantalla del celular activa."
+            _cerrar_visor_pantalla_celular(dev)
+            ok, mensaje = _solicitar_pantalla_celular(dev, "detener", sid)
+            return ok, mensaje or "Transmisión de pantalla del celular detenida."
         bloqueadas = {str(x) for x in _c("CEL_REMOTO_BLOQUEADAS", ("llamar", "sms"))}
         if origen in ("whatsapp", "telegram") and cap["id"] in bloqueadas:
             return False, "Eso solo lo hago si me lo pides desde la ventana de SARA o desde el propio celular."
@@ -838,6 +1461,9 @@ def comando_slash(arg: str) -> Tuple[bool, str]:
             borrar = [d for d, v in _dispositivos.items()
                       if quien in ("", "todos", "todo") or quien == d or quien in str(v.get("nombre", "")).lower()]
             for d in borrar:
+                vivo = _mod("pantalla_vivo")
+                if vivo is not None:
+                    vivo.detener(d)
                 _dispositivos.pop(d, None)
                 _estado.pop(d, None)
                 _auth.pop(d, None)

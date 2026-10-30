@@ -593,6 +593,13 @@ _d("CEL_CARPETA_RECIBIDO", "")        # "" = <carpeta de config.py>/carpetas_cre
 _d("CEL_HUELLA_CAPS", ("llamar", "sms", "notificaciones_leer"))   # laptop→celular: piden huella EN el celular
 _d("CEL_MAX_CUERPO_SUBIDA", 1_500_000)
 _d("CEL_BLOB_TTL_S", 1800)
+
+_d("CEL_PANTALLA_VIVO_ACTIVA", True)
+_d("CEL_PANTALLA_VIVO_INTERVALO_S", 0.6)
+_d("CEL_PANTALLA_CELULAR_ACTIVA", True)
+_d("CEL_PANTALLA_CELULAR_MAX_BYTES", 1000000)
+_d("CEL_PANTALLA_CONTROL_AVISO_ACCESIBILIDAD", True)
+
 # Voz de entrada (STT) — stt.py usa estos valores; sin ellos usa los mismos por defecto
 _d("STT_MODELO", "base")
 _d("STT_IDIOMA", "es")

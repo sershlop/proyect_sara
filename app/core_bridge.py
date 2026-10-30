@@ -94,6 +94,7 @@ navegador_activo = _importar("navegador_activo")  # Qué navegador usar si no di
 whatsapp = _importar("whatsapp")           # WhatsApp (dispositivo vinculado vía wa_sidecar; opcional)
 telegram_bot = _importar("telegram_bot")        # Telegram (bot privado como control remoto; opcional)
 celular = _importar("celular")
+pantalla_vivo = _importar("pantalla_vivo")
 volumen = _importar("volumen")                 # Control del volumen del sistema en lenguaje natural (opcional)
 multimedia = _importar("multimedia")         # Pausa / siguiente / anterior de lo que suena (Spotify, YouTube…) en lenguaje natural (opcional)
 envio_archivos = _importar("envio_archivos")   # «mándame el archivo X» por Telegram (opcional)
@@ -400,13 +401,13 @@ def inicializar() -> bool:
 
 def _arranque_pesado() -> None:
     """Calentar el LLM e indexar: lento, nunca debe bloquear el servidor."""
-    if voz is not None and hasattr(voz, "precalentar"):
+    if getattr(config, "PRECALENTAR_VOZ_AL_ARRANQUE", False) and voz is not None and hasattr(voz, "precalentar"):
         _seguro("voz.precalentar()", voz.precalentar)      # muletillas en caché → respuesta más rápida
     if navegador_activo is not None and hasattr(navegador_activo, "iniciar_rastreo"):
         _seguro("navegador_activo.iniciar_rastreo()", navegador_activo.iniciar_rastreo)   # aprende qué navegador usas más
-    if getattr(config, "PULSO_CALOR_ACTIVO", True):
+    if getattr(config, "PULSO_CALOR_ACTIVO", False):
         threading.Thread(target=_pulso_calor, name="sara-calor", daemon=True).start()
-    if hasattr(engine, "calentar_qwen"):
+    if getattr(config, "CALENTAR_QWEN_AL_ARRANQUE", False) and hasattr(engine, "calentar_qwen"):
         _seguro("calentar_qwen()", engine.calentar_qwen)
     if app_index is not None and hasattr(app_index, "ejecutar_reindexado_aplicaciones"):
         _seguro("reindexado de apps", app_index.ejecutar_reindexado_aplicaciones)
@@ -427,7 +428,7 @@ def _arranque_pesado() -> None:
                 lambda t, e, voz=False: procesar_mensaje(t, e, "telegram", "voz" if voz else "texto"),
                 resolver_confirmacion)
     if telegram_bot is not None and hasattr(telegram_bot, "arrancar"):
-        _seguro("telegram.arrancar()", telegram_bot.arrancar)   # hilos listos si hay token (inactivos hasta /telegram net on)
+        _seguro("telegram.arrancar()", telegram_bot.arrancar)   # inicia el sondeo solo si /telegram net está activo
     if celular is not None and hasattr(celular, "registrar_nucleo"):
         _seguro("celular.registrar_nucleo", celular.registrar_nucleo,
                 lambda t, e, voz=False: procesar_mensaje(t, e, "celular", "voz" if voz else "texto"),
@@ -891,41 +892,71 @@ def _despachar(res: dict, emit: Callable) -> Tuple[bool, str]:
 
 # ─── COMANDOS "/" (los mismos del REPL de main.py) ────────────────────────
 
-_AYUDA = """Comandos disponibles:
-/ayuda — esta ayuda
-/voz — prueba y diagnóstico de voz (/voz on · /voz off)
-/stt — diagnóstico de la voz de entrada (micrófono y modelo)
-/conv — puente conversacional (IA externa): estado · /conv on · /conv off · /conv olvidar
-/limpieza — reintento único con la frase limpiada por la IA externa (/limpieza on|off)
-/ia — de dónde sale la limpieza de frases y búsquedas: /ia externa (rápido, sin Ollama) · /ia local · /ia (estado)
-/abridor — editores detectados y lo aprendido · /abridor olvidar
-/navegador — navegador que SARA usa si no dices cuál (abierto / más usado) · /navegador olvidar
-/whatsapp — enlazar y usar WhatsApp (/whatsapp: número · estado · notificar on|off · desconectar)
-/telegram — bot de Telegram como control remoto (vincular · net on|off · voz on|off · audio on|off · bocina on|off · estado)
-/alertas — alertas al celular: on · off · estado (también: «silencia las alertas»)
-/descripcion — IA lee la pantalla (error, «qué pasa»): /descripcion on · off · estado (también por Telegram)
-/verificacion — pide el código del autenticador: /verificacion on · off · estado (apagarla solo desde aquí)
-/deshacer — revierte la última operación sobre archivos (también: «deshaz lo último»)
-/papelera — papelera reversible de SARA (/papelera vaciar confirmar borra definitivo)
-/modos — modos disponibles · /modo NOMBRE (activar) · /modo nuevo NOMBRE = acción ; acción · /modo borrar NOMBRE
-/donde — Wi-Fi, IP, batería de esta laptop (por Telegram: con código)
-/foto — foto de la webcam (solo por Telegram, con código)
-/pantalla — captura de la pantalla (solo por Telegram, con código)
-/bloquear — bloquea la sesión de Windows (por Telegram: con botón)
-/confirmar — marca la última clasificación como correcta
-/validar — guarda la última clasificación como regla permanente
-/corregir CATEGORIA — corrige la última clasificación
-/categorias — lista las categorías que SARA reconoce
-/reindexar — vuelve a escanear las carpetas
-/reindexar_apps — vuelve a descubrir aplicaciones
+_AYUDA = """COMANDOS RÍGIDOS (en esta ventana):
+/ayuda, /help — mostrar esta ayuda
+/voz [on|off] — voz de salida; sin argumento, prueba y diagnóstico
+/stt — diagnóstico de entrada de voz, micrófono y modelo
+/conv [on|off|olvidar] — puente conversacional y memoria de conversación
+/limpieza [on|off] — reintento de limpieza de frases; muestra diagnóstico
+/ia [externa|local] — preferencia de IA para limpieza/búsquedas; sin argumento, estado
+/abridor [olvidar] — diagnóstico del abridor y memoria aprendida
+/navegador [olvidar] — navegador predeterminado aprendido y diagnóstico
+/memoria [olvidar] — diagnóstico o borrado de frases/datos aprendidos
+/auto [on|off|estado|proteger APP|soltar APP] — optimización automática
+/optimizar [ahora|cerrar|ia] — diagnóstico y acciones de optimización disponibles
+/descripcion (/descripción) [on|off|estado] — descripción de pantalla mediante IA
+/verificacion (/verificación) [on|off|estado] — configuración del autenticador
+/papelera [vaciar confirmar] — papelera reversible; vaciar exige confirmación
+/modos — lista de modos; /modo NOMBRE, /modo nuevo NOMBRE = acción ; acción,
+        /modo borrar NOMBRE — administrar modos
+/donde — Wi-Fi, IP y batería de esta laptop
+/foto, /pantalla — comandos de Telegram con autenticación; aquí no capturan
+/pantalla-vivo laptop-a-celular on|off|estado — transmitir la pantalla de esta laptop al celular
+/pantalla-vivo celular-a-laptop on|off|estado — mostrar la pantalla del celular en esta laptop
+/alertas [on|off|estado] — alertas proactivas
+/categorias — categorías de clasificación reconocidas
 /stats — estadísticas de aprendizaje
-/calibrar — aciertos por nivel de confianza
-/salud — CPU, RAM, disco y batería
-/auto — SARA optimiza sola el equipo: /auto on · /auto off · /auto estado · /auto proteger APP · /auto soltar APP
-/optimizar — diagnóstico de RAM/CPU y qué haría (/optimizar ahora · /optimizar cerrar · /optimizar ia)
+/calibrar — resultados por nivel de confianza
+/salud — CPU, RAM, disco y batería de esta laptop
 /habitos — estadísticas de hábitos
-/fixture — fixture de regresión
-Cualquier otra cosa se envía al motor de clasificación."""
+/fixture — datos de regresión
+/reindexar — volver a escanear archivos en segundo plano
+/reindexar_apps — redescubrir aplicaciones en segundo plano
+/confirmar — confirmar la última clasificación
+/validar — guardar la última clasificación como regla permanente
+/corregir CATEGORIA — corregir la última clasificación
+/celular — estado/ayuda de vínculo; también: vincular, desvincular [nombre|todos], probar
+/whatsapp — enlazar con número internacional; estado, notificar on|off, net on|off,
+            net voz on|off, alias NOMBRE NÚMERO, desconectar
+/telegram — estado; vincular/desvincular; net on|off; voz, audio, bocina, avisos,
+            palabra on|off. Canal remoto apagado hasta activarlo con /telegram net on.
+Comandos directos del bot de Telegram: /start, /help, /ayuda, /estado, /cancelar,
+                                      /salud, /pantalla, /donde, /foto, /bloquear,
+                                      /deshacer, /papelera, /modos, /modo NOMBRE,
+                                      /alertas, /descripcion, /verificacion.
+
+FUNCIONES POR DESTINO (lenguaje natural; dependen de vínculo, permisos y configuración):
+LAPTOP — abrir/buscar aplicaciones, archivos y carpetas; navegar/buscar en la web;
+         organizar, mover, renombrar y recuperar archivos; consultar batería, red,
+         CPU/RAM/disco; recordatorios, notas, modos, alertas y optimización;
+         usar voz/micrófono si están activados; foto/captura local y descripción de pantalla
+         si están disponibles. Apagar/reiniciar requieren los controles de seguridad vigentes.
+CELULAR — linterna; localizar/hacer sonar el teléfono; leer/limpiar notificaciones;
+          llamadas y SMS (permisos/confirmación); abrir apps; volumen/silencio,
+          brillo, No molestar, alarmas/temporizador, batería/red/ubicación, controles
+          multimedia, búsqueda web/YouTube, foto/selfie y captura de pantalla.
+AMBOS / REMOTO — volumen/silencio, brillo, No molestar, alarmas/temporizador,
+                 batería/red/ubicación, multimedia, búsquedas, cámara/captura,
+                 bloqueo y apertura de apps; «del celular» o «en el celular» elige
+                 el teléfono vinculado. Desde la app móvil también se envían órdenes
+                 a la laptop. WhatsApp y Telegram son canales opcionales y no se
+                 activan al vincular el celular.
+PANTALLA EN VIVO — laptop-a-celular: abre el visor en el celular; celular-a-laptop:
+                   Android exige que el usuario apruebe MediaProjection en el teléfono.
+                   Usa on|off|estado con dirección explícita; cerrar el visor también detiene
+                   la sesión. La resolución/fluidez se controla desde la app del celular.
+No todas las acciones están disponibles en todo equipo; SARA informa si falta un permiso,
+un vínculo, conexión o capacidad. Las órdenes no incluidas arriba se interpretan por lenguaje natural."""
 
 
 def _en_hilo(nombre: str, fn: Callable) -> None:
@@ -937,7 +968,7 @@ def _en_hilo(nombre: str, fn: Callable) -> None:
 
 # Comandos cuya salida es larga/técnica: se muestran en pantalla pero no se leen en voz alta.
 # (/whatsapp se excluye aparte con startswith: admite "/whatsapp: 52..." y muestra un código de enlace.)
-_SLASH_SIN_VOZ = {"/ayuda", "/help", "/fixture", "/categorias", "/calibrar", "/voz", "/stt", "/conv", "/abridor", "/navegador", "/limpieza", "/ia", "/celular"}
+_SLASH_SIN_VOZ = {"/ayuda", "/help", "/fixture", "/categorias", "/calibrar", "/voz", "/stt", "/conv", "/abridor", "/navegador", "/limpieza", "/ia", "/memoria", "/celular", "/pantalla-vivo"}
 
 
 def _comando_slash(texto: str) -> Optional[Tuple[bool, str]]:
@@ -965,6 +996,10 @@ def _comando_slash(texto: str) -> Optional[Tuple[bool, str]]:
         if celular is None:
             return False, "celular.py no está disponible (revisa el log)."
         return celular.comando_slash(arg)
+    if cmd == "/pantalla-vivo":
+        if celular is None:
+            return False, "celular.py no está disponible (revisa el log)."
+        return celular.comando_pantalla_vivo(arg)
     partes = texto.split(maxsplit=1)
     if cmd == "/voz":
         if voz is None:
@@ -1546,6 +1581,19 @@ def _atajos_nuevos(texto: str, emit: Callable) -> Optional[Tuple[bool, str, dict
     archivos (SOLO Telegram, con ventana TOTP salvo que la verificación esté apagada). None = no es asunto suyo."""
     try:
         og = getattr(_ctx, "origen", None)
+        if celular is not None and pantalla_vivo is not None and og not in _ORIGENES_REMOTOS:
+            intencion_vivo = _seguro("pantalla_vivo.resolver_intencion", pantalla_vivo.resolver_intencion,
+                                     texto, "laptop")
+            if intencion_vivo:
+                direccion, accion_vivo = intencion_vivo
+                estado_vivo = "on" if accion_vivo == "iniciar" else "off"
+                if direccion == "laptop-a-celular":
+                    resultado = celular.comando_pantalla_vivo(f"{direccion} {estado_vivo}")
+                else:
+                    frase = ("activa la pantalla en vivo del celular" if accion_vivo == "iniciar"
+                             else "detén la pantalla en vivo del celular")
+                    resultado = celular.ejecutar(frase, og, lambda p: _pedir_confirmacion(emit, p))
+                return bool(resultado[0]), str(resultado[1]), {}
         if celular is not None and og != "celular" and _seguro("celular.es_comando", celular.es_comando, texto):
             ok_c, msg_c = celular.ejecutar(texto, og, lambda p: _pedir_confirmacion(emit, p))
             return bool(ok_c), str(msg_c), {}
